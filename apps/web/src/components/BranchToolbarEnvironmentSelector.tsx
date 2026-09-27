@@ -4,7 +4,7 @@ import { memo, useMemo } from "react";
 
 import type { EnvironmentOption } from "./BranchToolbar.logic";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
-import { useHostSandboxesByEnvironmentId } from "~/state/sandbox";
+import { sandboxProjectName, useHostSandboxesByEnvironmentId } from "~/state/sandbox";
 import { useComposerMenuProps } from "./chat/composerEventScope";
 import {
   Select,
@@ -40,8 +40,11 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
   // Sandboxes are marked from the host's own records, never from what a
   // sandbox's server says about itself.
   const hostSandboxes = useHostSandboxesByEnvironmentId();
-  const labelOf = (env: EnvironmentOption) =>
-    hostSandboxes.has(env.environmentId) ? `${env.label} · sandbox` : env.label;
+  // A sandbox reads as the project it runs, not its internal VM name.
+  const labelOf = (env: EnvironmentOption) => {
+    const sandbox = hostSandboxes.get(env.environmentId);
+    return sandbox ? `${sandboxProjectName(sandbox)} · sandbox` : env.label;
+  };
   const iconOf = (env: EnvironmentOption | null, className: string) =>
     env !== null && hostSandboxes.has(env.environmentId) ? (
       <ContainerIcon className={className} aria-hidden="true" />
@@ -59,7 +62,7 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
         : []),
       ...availableEnvironments.map((env) => ({
         value: env.environmentId,
-        label: hostSandboxes.has(env.environmentId) ? `${env.label} · sandbox` : env.label,
+        label: labelOf(env),
       })),
     ],
     [availableEnvironments, autoEnvironmentLabel, onAutoEnvironment, hostSandboxes],

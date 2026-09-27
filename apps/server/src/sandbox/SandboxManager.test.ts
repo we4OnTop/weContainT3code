@@ -3,6 +3,7 @@ import { ProjectId, ThreadId, type SandboxInfo } from "@t3tools/contracts";
 
 import {
   PROJECT_FOLDER_PATTERN,
+  guestUpstreamUrl,
   buildFailureRecord,
   migrateLegacyRecords,
   pickPairingUrl,
@@ -168,4 +169,26 @@ it("serves project folders by their real name, case included", () => {
   for (const bad of ["", ".", "..", "-rf", "a/b", "a\b", "a;b", "$(x)", "a\nb", "ä"]) {
     expect(PROJECT_FOLDER_PATTERN.test(bad), JSON.stringify(bad)).toBe(false);
   }
+});
+
+it("gives the guest only the host repository's identity as upstream", () => {
+  expect(
+    guestUpstreamUrl(
+      "origin\thttps://github.com/pingdotgg/t3code.git (fetch)\norigin\thttps://github.com/pingdotgg/t3code.git (push)\n",
+    ),
+  ).toBe("https://github.com/pingdotgg/t3code.git");
+  // upstream wins over origin, as in the host's own identity
+  expect(
+    guestUpstreamUrl(
+      "origin\tgit@github.com:me/fork.git (fetch)\nupstream\tgit@github.com:acme/app.git (fetch)\n",
+    ),
+  ).toBe("https://github.com/acme/app.git");
+  // credentials never cross into the sandbox
+  expect(
+    guestUpstreamUrl("origin\thttps://user:ghp_secret@github.com/acme/app.git (fetch)\n"),
+  ).toBe("https://github.com/acme/app.git");
+  // local paths and single-segment URLs are not hosted repositories
+  expect(guestUpstreamUrl("origin\tC:/Users/me/repo (fetch)\n")).toBeNull();
+  expect(guestUpstreamUrl("origin\tgit://127.0.0.1:9418/t3code (fetch)\n")).toBeNull();
+  expect(guestUpstreamUrl("")).toBeNull();
 });

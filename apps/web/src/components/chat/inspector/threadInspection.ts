@@ -213,7 +213,10 @@ export interface ThreadInspection {
     readonly estimatedInputTokens: Record<InputCategory, number>;
     readonly latestUsage: UsagePoint | null;
     readonly peakUsedTokens: number;
+    /** Tokens the provider processed for this chat (every request counted). */
+    readonly processedTokens: number;
   };
+  readonly processed: ReadonlyArray<ProcessedPoint>;
   readonly olderActivitiesOmitted: boolean;
 }
 
@@ -577,6 +580,7 @@ export function inspectThread(result: ThreadInspectResult): ThreadInspection {
   const toolCalls = buildToolCalls(activities);
   const subagents = buildSubagents(activities);
   const usage = buildUsage(activities);
+  const processed = processedTokenSeries(usage);
   const compactions = buildCompactions(activities);
   const inputs = buildInputs(result.messages, toolCalls, subagents);
   const estimatedInputTokens = emptyAdded();
@@ -609,7 +613,9 @@ export function inspectThread(result: ThreadInspectResult): ThreadInspection {
       estimatedInputTokens,
       latestUsage: usage.at(-1) ?? null,
       peakUsedTokens: usage.reduce((peak, point) => Math.max(peak, point.usedTokens), 0),
+      processedTokens: processed.at(-1)?.cumulative ?? 0,
     },
+    processed,
     olderActivitiesOmitted: result.olderActivitiesOmitted,
   };
 }
@@ -631,4 +637,49 @@ export function prettyPayload(activity: ThreadInspectActivity): string {
       : activity.payloadJson;
   }
   return JSON.stringify(parsed, null, 2);
+}
+
+export interface ProcessedPoint {
+  readonly at: string;
+  /** Tokens of the requests since the previous snapshot. */
+  readonly tokens: number;
+  readonly cumulative: number;
+}
+
+/**
+ * What the chat cost in tokens, request by request. Subscription limits count
+ * every request's full input (the whole context is sent again each time), so
+ * this sums each snapshot's last request, or the growth of the provider's
+ * running total where it reports one instead.
+ */
+export function processedTokenSeries(usage: ReadonlyArray<UsagePoint>): ProcessedPoint[] {
+  const points: ProcessedPoint[] = [];
+  let cumulative = 0;
+  let previousTotal: number | null = null;
+  for (const point of usage) {
+    let tokens = 0;
+    if (point.lastInputTokens !== null || point.lastOutputTokens !== null) {
+      tokens = (point.lastInputTokens ?? 0) + (point.lastOutputTokens ?? 0);
+    } else if (point.totalProcessedTokens !== null) {
+      tokens = previousTotal === null ? 0 : Math.max(0, point.totalProcessedTokens - previousTotal);
+    }
+    if (point.totalProcessedTokens !== null) previousTotal = point.totalProcessedTokens;
+    cumulative += tokens;
+    points.push({ at: point.at, tokens, cumulative });
+  }
+  return points;
+}
+
+/** Tokens this chat processed between two instants (ms since epoch). */
+export function tokensBetween(
+  processed: ReadonlyArray<ProcessedPoint>,
+  startMs: number,
+  endMs: number,
+): number {
+  let total = 0;
+  for (const point of processed) {
+    const at = Date.parse(point.at);
+    if (at >= startMs && at <= endMs) total += point.tokens;
+  }
+  return total;
 }

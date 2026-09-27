@@ -17,6 +17,8 @@ import { FetchHttpClient, HttpClient } from "effect/unstable/http";
 
 import packageJson from "../../package.json" with { type: "json" };
 import * as ProcessRunner from "../processRunner.ts";
+import { normalizeGitRemoteUrl } from "@t3tools/shared/git";
+import { parseRemoteFetchUrls, pickPrimaryRemote } from "../project/RepositoryIdentityResolver.ts";
 import * as ServerConfigModule from "../config.ts";
 import {
   type SandboxActivityInput,
@@ -1320,6 +1322,46 @@ export const make = Effect.fn("SandboxManager.make")(function* () {
     });
 
   /**
+   * Gives the guest clone the host project's repository identity as its
+   * `upstream` remote. The guest's `origin` is the sandbox git daemon, so
+   * without this the sandbox's t3 server names the project after
+   * `git://127.0.0.1:9418/...` and the app treats it as a different
+   * repository: its own group, and "Run on" cannot switch a chat into it.
+   * Best effort; a project without a usable remote just stays separate.
+   */
+  const linkGuestToHostRepository = Effect.fn("sandbox.linkGuestToHostRepository")(function* (
+    name: string,
+    projectCwd: string,
+    workdir: string,
+  ) {
+    const remotes = yield* gitRun("create", projectCwd, ["remote", "-v"]).pipe(
+      Effect.orElseSucceed(() => ""),
+    );
+    const upstream = guestUpstreamUrl(remotes);
+    if (upstream === null) return;
+    yield* sbxExec(
+      name,
+      [
+        "sh",
+        "-c",
+        'git -C "$1" remote set-url upstream "$2" 2>/dev/null || git -C "$1" remote add upstream "$2"',
+        "sh",
+        workdir,
+        upstream,
+      ],
+      "create",
+      "1 minute",
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("Sandbox could not link the clone to the host repository", {
+          name,
+          detail: error.detail,
+        }),
+      ),
+    );
+  });
+
+  /**
    * `sync.ignore` lands in the clone's `.git/info/exclude` (never committed);
    * `sync.skipWorktree` freezes tracked files. Values travel as positional
    * arguments, never spliced into the shell script.
@@ -1595,7 +1637,20 @@ export const make = Effect.fn("SandboxManager.make")(function* () {
       for (;;) {
         if (boot) {
           yield* hardenGuest(name)
-            .pipe(Effect.andThen(sbxExec(name, ["start-t3"], "create", "10 minutes")))
+            .pipe(
+              // Sandboxes from before the upstream link get it on their next boot.
+              Effect.andThen(
+                getRecord(sandboxId).pipe(
+                  Effect.orElseSucceed(() => null),
+                  Effect.flatMap((record) =>
+                    record?.workspaceDir
+                      ? linkGuestToHostRepository(name, record.projectCwd, record.workspaceDir)
+                      : Effect.void,
+                  ),
+                ),
+              ),
+              Effect.andThen(sbxExec(name, ["start-t3"], "create", "10 minutes")),
+            )
             .pipe(
               Effect.catch((error) =>
                 Effect.logWarning("Sandbox revive failed; retrying", {
@@ -1923,6 +1978,7 @@ export const make = Effect.fn("SandboxManager.make")(function* () {
           yield* Effect.sleep("3 seconds");
         }
         yield* applySyncFilters(name, guestWorkdir, options);
+        yield* linkGuestToHostRepository(name, input.projectCwd, guestWorkdir);
         yield* emit("workspace", "done");
 
         // Only onto a fresh clone: a reused sandbox already holds live gortex
@@ -3045,3 +3101,22 @@ export const layer = Layer.effect(SandboxManager, make()).pipe(
   Layer.provide(SandboxTemplatesModule.layer),
   Layer.provide(FetchHttpClient.layer),
 );
+
+/**
+ * The guest's `upstream` URL for a host project, from `git remote -v`: the
+ * host's primary remote reduced to its repository identity
+ * (`github.com/owner/repo`) and written as a plain https URL. Only the
+ * identity crosses into the sandbox, never the host's URL itself, so
+ * credentials or local paths in a remote cannot leak. Null when the host has
+ * no remote that names a hosted repository.
+ */
+export function guestUpstreamUrl(remoteVerbose: string): string | null {
+  const remote = pickPrimaryRemote(parseRemoteFetchUrls(remoteVerbose));
+  if (remote === null) return null;
+  const key = normalizeGitRemoteUrl(remote.remoteUrl);
+  return HOSTED_REPOSITORY_KEY.test(key) ? `https://${key}.git` : null;
+}
+
+/** `host.tld/owner/repo[/...]`: a dotted host and at least two path segments. */
+const HOSTED_REPOSITORY_KEY =
+  /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+(?:\/[a-z0-9._~-]+){2,}$/;

@@ -20,6 +20,8 @@ const KIND_COLOR: Record<GraphNodeKind, string> = {
   sandbox: "#10b981",
   remote: "#f59e0b",
   proxy: "#0ea5e9",
+  host: "#6366f1",
+  chat: "#2a78d6",
 };
 const ALERT_COLOR = "#ef4444";
 const MUTED_COLOR = "#9ca3af";
@@ -29,6 +31,8 @@ const KIND_SIZE: Record<GraphNodeKind, number> = {
   sandbox: 38,
   remote: 34,
   proxy: 30,
+  host: 46,
+  chat: 18,
 };
 
 interface TooltipData {

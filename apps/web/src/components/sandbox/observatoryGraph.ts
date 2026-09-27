@@ -22,7 +22,7 @@ export function chartText(value: string, max = 120): string {
   return cleaned.length > max ? `${cleaned.slice(0, max - 1)}…` : cleaned;
 }
 
-export type GraphNodeKind = "receiver" | "sandbox" | "remote" | "proxy";
+export type GraphNodeKind = "receiver" | "sandbox" | "remote" | "proxy" | "host" | "chat";
 
 export interface ObservatoryNode {
   readonly id: string;
@@ -192,6 +192,8 @@ export interface NodePosition {
 
 const COLUMN_X: Record<GraphNodeKind, number> = {
   sandbox: -320,
+  host: -320,
+  chat: 280,
   proxy: 0,
   receiver: 0,
   remote: 320,

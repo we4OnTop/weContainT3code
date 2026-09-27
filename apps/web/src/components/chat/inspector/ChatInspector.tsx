@@ -11,13 +11,15 @@ import { Sheet, SheetContent } from "../../ui/sheet";
 import { Spinner } from "../../ui/spinner";
 import { Switch } from "../../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
-import { ContextGrowthChart, ContextSizeChart } from "./ContextCharts";
+import { ContextGrowthChart, ContextSizeChart, ProcessedTokensChart } from "./ContextCharts";
+import { EnvironmentUsageLimits } from "./UsageLimitsSection";
 import {
   INPUT_CATEGORIES,
   INPUT_CATEGORY_LABEL,
   formatTokenCount,
   inspectThread,
   prettyPayload,
+  tokensBetween,
   type ContextInput,
   type SubagentTask,
   type ThreadInspection,
@@ -25,10 +27,11 @@ import {
   type ToolCall,
 } from "./threadInspection";
 
-type Tab = "overview" | "context" | "tools" | "subagents" | "timeline";
+type Tab = "overview" | "usage" | "context" | "tools" | "subagents" | "timeline";
 
 const TABS: ReadonlyArray<readonly [Tab, string]> = [
   ["overview", "Overview"],
+  ["usage", "Usage"],
   ["context", "Context"],
   ["tools", "Tools"],
   ["subagents", "Subagents"],
@@ -208,6 +211,9 @@ export function ChatInspectorPanel({
               </p>
             ) : null}
             {tab === "overview" ? <Overview inspection={inspection} /> : null}
+            {tab === "usage" ? (
+              <UsageTab inspection={inspection} environmentId={environmentId} />
+            ) : null}
             {tab === "context" ? <ContextTab inspection={inspection} /> : null}
             {tab === "tools" ? (
               <ToolsTab
@@ -310,6 +316,48 @@ function Overview({ inspection }: { readonly inspection: ThreadInspection }) {
             ))}
           </tbody>
         </table>
+      </section>
+    </div>
+  );
+}
+
+function UsageTab({
+  inspection,
+  environmentId,
+}: {
+  readonly inspection: ThreadInspection;
+  readonly environmentId: EnvironmentId;
+}) {
+  const { processed } = inspection;
+  return (
+    <div className="flex flex-col gap-4">
+      <section>
+        <h3 className="mb-1 font-medium text-sm">
+          Tokens processed by this chat:{" "}
+          <span className="tabular-nums">
+            {formatTokenCount(inspection.totals.processedTokens)}
+          </span>
+        </h3>
+        <p className="mb-1 text-muted-foreground text-xs">
+          Every request sends the whole context again, so this (not the context size) is what counts
+          against a subscription limit. Summed from the provider&apos;s per-request reports.
+        </p>
+        {processed.length === 0 ? (
+          <p className="text-muted-foreground text-xs">No usage reported for this chat yet.</p>
+        ) : (
+          <ProcessedTokensChart processed={processed} />
+        )}
+      </section>
+      <section>
+        <h3 className="mb-1 font-medium text-sm">Subscription limits where this chat runs</h3>
+        <p className="mb-2 text-muted-foreground text-xs">
+          Limits are shared by every chat on the account; the line under each window shows this
+          chat&apos;s part of it.
+        </p>
+        <EnvironmentUsageLimits
+          environmentId={environmentId}
+          tokensInWindow={(startMs, endMs) => tokensBetween(processed, startMs, endMs)}
+        />
       </section>
     </div>
   );

@@ -68,6 +68,7 @@ import {
   XIcon,
 } from "lucide-react";
 import {
+  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -124,6 +125,9 @@ import {
 } from "../threadSelectionStore";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { useHostSandboxesByEnvironmentId } from "~/state/sandbox";
+import { SandboxThreadGroup } from "./sidebar/SandboxThreadGroup";
+import { splitSandboxThreads } from "./sidebar/sandboxGroups";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { useClientSettings } from "../hooks/useSettings";
@@ -2559,7 +2563,7 @@ export default function Sidebar() {
     pinnedThreads,
     draggableThreadKeys,
     activeReorderableThreadKeys,
-    activeThreads,
+    activeThreads: allActiveThreads,
     snoozedThreads,
     settledThreads,
     snoozeNow,
@@ -2661,14 +2665,40 @@ export default function Sidebar() {
       snoozeNow: preciseNow,
     };
   }, [nowMinute, optimisticDrop, scopedProjectKeys, serverConfigs, snoozeWakeTick, threads]);
+  // Active chats running inside a sandbox leave the regular list and gather
+  // under their sandbox, named after the project. Pinned, snoozed and settled
+  // chats stay where the user put them.
+  const hostSandboxes = useHostSandboxesByEnvironmentId();
+  const { hostThreads: activeThreads, groups: sandboxThreadGroups } = useMemo(
+    () => splitSandboxThreads(allActiveThreads, hostSandboxes),
+    [allActiveThreads, hostSandboxes],
+  );
+  const [collapsedSandboxIds, setCollapsedSandboxIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const toggleSandboxGroup = useCallback((sandboxId: string) => {
+    setCollapsedSandboxIds((current) => {
+      const next = new Set(current);
+      if (next.has(sandboxId)) next.delete(sandboxId);
+      else next.add(sandboxId);
+      return next;
+    });
+  }, []);
+  const sandboxGroupThreads = useMemo(
+    () =>
+      sandboxThreadGroups.flatMap((group) =>
+        collapsedSandboxIds.has(group.sandbox.sandboxId) ? [] : group.threads,
+      ),
+    [collapsedSandboxIds, sandboxThreadGroups],
+  );
 
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
   const [activeSearchResultIndex, setActiveSearchResultIndex] = useState(0);
   const isSearchingThreads = threadSearchQuery.trim().length > 0;
   const searchableThreads = useMemo(
-    () => [...pinnedThreads, ...activeThreads, ...snoozedThreads, ...settledThreads],
-    [activeThreads, pinnedThreads, settledThreads, snoozedThreads],
+    () => [...pinnedThreads, ...allActiveThreads, ...snoozedThreads, ...settledThreads],
+    [allActiveThreads, pinnedThreads, settledThreads, snoozedThreads],
   );
   const searchEnvironmentIds = useMemo(
     () =>
@@ -2805,8 +2835,20 @@ export default function Sidebar() {
   }, [routeThreadKey, snoozedShelfExpanded, snoozedThreads]);
 
   const orderedThreads = useMemo(
-    () => [...pinnedThreads, ...activeThreads, ...visibleSnoozedThreads, ...renderedSettledThreads],
-    [pinnedThreads, activeThreads, visibleSnoozedThreads, renderedSettledThreads],
+    () => [
+      ...pinnedThreads,
+      ...activeThreads,
+      ...sandboxGroupThreads,
+      ...visibleSnoozedThreads,
+      ...renderedSettledThreads,
+    ],
+    [
+      pinnedThreads,
+      activeThreads,
+      sandboxGroupThreads,
+      visibleSnoozedThreads,
+      renderedSettledThreads,
+    ],
   );
   const orderedThreadKeys = useMemo(
     () =>
@@ -4844,7 +4886,71 @@ export default function Sidebar() {
                           onNavigateToDraft={navigateToDraft}
                         />,
                       ];
+                      // Sandbox groups sit between the active chats and the
+                      // snoozed/settled shelves. They are not part of the
+                      // sortable list: their order comes from the sandbox.
+                      const labelCounts = new Map<string, number>();
+                      for (const group of sandboxThreadGroups) {
+                        labelCounts.set(group.label, (labelCounts.get(group.label) ?? 0) + 1);
+                      }
+                      let sandboxGroupsPlaced = false;
+                      const placeSandboxGroups = () => {
+                        if (sandboxGroupsPlaced) return;
+                        sandboxGroupsPlaced = true;
+                        for (const group of sandboxThreadGroups) {
+                          const { sandbox } = group;
+                          const project =
+                            projects.find(
+                              (candidate) =>
+                                candidate.environmentId === sandbox.environmentId &&
+                                (sandbox.workspaceDir === null ||
+                                  candidate.workspaceRoot === sandbox.workspaceDir),
+                            ) ??
+                            projects.find(
+                              (candidate) => candidate.environmentId === sandbox.environmentId,
+                            );
+                          items.push(
+                            <SandboxThreadGroup
+                              key={`sandbox-group:${sandbox.sandboxId}`}
+                              sandbox={sandbox}
+                              label={group.label}
+                              qualifier={
+                                (labelCounts.get(group.label) ?? 0) > 1
+                                  ? sandbox.name.slice(-8)
+                                  : null
+                              }
+                              threadCount={group.threads.length}
+                              expanded={!collapsedSandboxIds.has(sandbox.sandboxId)}
+                              onToggle={() => toggleSandboxGroup(sandbox.sandboxId)}
+                              onNewThread={
+                                project === undefined
+                                  ? undefined
+                                  : () =>
+                                      void handleNewThreadRef.current(
+                                        scopeProjectRef(project.environmentId, project.id),
+                                      )
+                              }
+                            >
+                              {group.threads.map((thread) => (
+                                <Fragment
+                                  key={scopedThreadKey(
+                                    scopeThreadRef(thread.environmentId, thread.id),
+                                  )}
+                                >
+                                  {renderThreadRowInner(thread, "active")}
+                                </Fragment>
+                              ))}
+                            </SandboxThreadGroup>,
+                          );
+                        }
+                      };
                       for (const item of sidebarListItems) {
+                        if (
+                          item.kind === "marker" &&
+                          (item.marker === "snoozed-header" || item.marker === "settled-header")
+                        ) {
+                          placeSandboxGroups();
+                        }
                         if (item.kind === "thread") {
                           items.push(renderThreadRow(threadByKey.get(item.key)!, item.section));
                           continue;
@@ -4948,6 +5054,7 @@ export default function Sidebar() {
                             break;
                         }
                       }
+                      placeSandboxGroups();
                       return items;
                     })()}
                     {settledShelfExpanded && hiddenSettledCount > 0 ? (

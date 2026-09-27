@@ -26,13 +26,15 @@ import {
 } from "../ui/dialog";
 import { Spinner } from "../ui/spinner";
 import { Switch } from "../ui/switch";
+import { ChatsOverview } from "./ChatsOverview";
 import { SandboxGraphChart } from "./SandboxGraphChart";
 import { buildObservatoryGraph } from "./observatoryGraph";
 
-type Tab = "graph" | "network" | "activity" | "commands";
+type Tab = "graph" | "chats" | "network" | "activity" | "commands";
 
 const TABS: ReadonlyArray<readonly [Tab, string]> = [
   ["graph", "Graph"],
+  ["chats", "Chats & usage"],
   ["network", "Network"],
   ["activity", "Sync & pushes"],
   ["commands", "Commands"],
@@ -300,6 +302,8 @@ export function SandboxObservatoryDialog({
                 </p>
               </>
             ) : null}
+
+            {tab === "chats" ? <ChatsOverview onNavigateAway={() => onOpenChange(false)} /> : null}
 
             {tab === "network" ? (
               <div className="flex flex-col gap-3">

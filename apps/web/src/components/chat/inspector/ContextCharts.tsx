@@ -21,6 +21,7 @@ import {
   formatTokenCount,
   type Compaction,
   type InputCategory,
+  type ProcessedPoint,
   type TurnSummary,
   type UsagePoint,
 } from "./threadInspection";
@@ -343,6 +344,71 @@ export function ContextGrowthChart({ turns }: { readonly turns: ReadonlyArray<Tu
       signature={JSON.stringify(turns.map((turn) => [turn.turnId, turn.added, turn.usedTokens]))}
       height={280}
       label="Estimated tokens added per turn, stacked by source"
+    />
+  );
+}
+
+/**
+ * Tokens the provider processed for this chat, cumulative. Every request
+ * resends the whole context, so this is what counts against a subscription
+ * limit, not the context size.
+ */
+export function ProcessedTokensChart({
+  processed,
+}: {
+  readonly processed: ReadonlyArray<ProcessedPoint>;
+}) {
+  const build = (dark: boolean): ChartOption => {
+    const ink = inkFor(dark);
+    const color = dark ? "#3987e5" : "#2a78d6";
+    return {
+      animation: false,
+      grid: { left: 52, right: 16, top: 16, bottom: 32 },
+      tooltip: {
+        trigger: "axis",
+        renderMode: "richText",
+        axisPointer: { type: "line", lineStyle: { color: ink.secondary } },
+        formatter: (params) => {
+          const entry = Array.isArray(params) ? params[0] : params;
+          const value = entry?.value as [number, number] | undefined;
+          if (!value) return "";
+          const point = processed[entry?.dataIndex ?? 0];
+          return [
+            clock(value[0]),
+            `Processed so far: ${formatTokenCount(value[1])} tokens`,
+            ...(point ? [`This step: ${formatTokenCount(point.tokens)}`] : []),
+          ].join("\n");
+        },
+      },
+      xAxis: { type: "time", ...axisStyle(ink), splitLine: { show: false } },
+      yAxis: {
+        type: "value",
+        ...axisStyle(ink),
+        axisLabel: {
+          color: ink.secondary,
+          fontSize: 11,
+          formatter: (value: number) => formatTokenCount(value),
+        },
+      },
+      series: [
+        {
+          type: "line",
+          name: "Processed tokens",
+          step: "end",
+          showSymbol: false,
+          lineStyle: { width: 2, color },
+          areaStyle: { color, opacity: 0.08 },
+          data: processed.map((point) => [Date.parse(point.at), point.cumulative]),
+        },
+      ],
+    };
+  };
+  return (
+    <EChart
+      build={build}
+      signature={JSON.stringify(processed.at(-1) ?? null) + processed.length}
+      height={200}
+      label="Tokens processed for this chat over time"
     />
   );
 }

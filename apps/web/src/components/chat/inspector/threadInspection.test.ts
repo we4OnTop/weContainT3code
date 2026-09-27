@@ -1,7 +1,14 @@
 import type { ThreadInspectActivity, ThreadInspectResult } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { formatTokenCount, inspectThread, prettyPayload } from "./threadInspection";
+import {
+  formatTokenCount,
+  inspectThread,
+  prettyPayload,
+  processedTokenSeries,
+  tokensBetween,
+  type UsagePoint,
+} from "./threadInspection";
 
 let seq = 0;
 function activity(
@@ -179,3 +186,39 @@ describe("formatTokenCount", () => {
     expect(formatTokenCount(1_500_000)).toBe("1.5M");
   });
 });
+
+describe("processedTokenSeries", () => {
+  it("sums each request and falls back to the provider's running total", () => {
+    const series = processedTokenSeries([
+      usagePoint("2026-09-27T10:00:00.000Z", { lastInputTokens: 1000, lastOutputTokens: 200 }),
+      usagePoint("2026-09-27T10:01:00.000Z", { lastInputTokens: 1500, lastOutputTokens: 100 }),
+      usagePoint("2026-09-27T10:02:00.000Z", { totalProcessedTokens: 10_000 }),
+      usagePoint("2026-09-27T10:03:00.000Z", { totalProcessedTokens: 12_500 }),
+    ]);
+    expect(series.map((point) => point.tokens)).toEqual([1200, 1600, 0, 2500]);
+    expect(series.at(-1)?.cumulative).toBe(5300);
+    expect(
+      tokensBetween(
+        series,
+        Date.parse("2026-09-27T10:00:30.000Z"),
+        Date.parse("2026-09-27T10:03:00.000Z"),
+      ),
+    ).toBe(4100);
+  });
+});
+
+function usagePoint(at: string, fields: Partial<UsagePoint>): UsagePoint {
+  return {
+    activityId: at,
+    at,
+    turnId: null,
+    usedTokens: 0,
+    maxTokens: null,
+    lastInputTokens: null,
+    lastCachedInputTokens: null,
+    lastOutputTokens: null,
+    totalProcessedTokens: null,
+    autoCompactThreshold: null,
+    ...fields,
+  };
+}
