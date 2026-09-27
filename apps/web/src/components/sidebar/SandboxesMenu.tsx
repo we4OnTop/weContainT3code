@@ -151,7 +151,8 @@ export function SandboxesMenu() {
           <TooltipPopup side="top">Sandboxes</TooltipPopup>
         </Tooltip>
         <SheetContent side="left" className="flex w-[30rem] max-w-[92vw] flex-col">
-          <div className="flex items-center gap-1 border-b px-4 py-3">
+          {/* pe-12 keeps the tabs clear of the sheet's close button in the corner. */}
+          <div className="flex items-center gap-1 border-b py-3 ps-4 pe-12">
             <h2 className="mr-auto text-sm font-medium">Sandboxes</h2>
             <Button
               size="sm"
