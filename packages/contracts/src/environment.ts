@@ -162,6 +162,10 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
       desktop servers whose app predates the remote trigger, where clients
       must keep telling the user to update the app on that machine. */
   desktopAppUpdate: Schema.optionalKey(Schema.Boolean),
+  /** Server can manage Docker-based per-thread sandboxes (create, list, stop,
+      sync). Absent on servers without the sandbox module, so clients hide the
+      entry points instead of probing them. */
+  sandboxes: Schema.optionalKey(Schema.Boolean),
 });
 export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabilities.Type;
 

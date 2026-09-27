@@ -72,6 +72,8 @@ import {
   type TerminalMetadataStreamEvent,
   type PullRequestRef,
   WS_METHODS,
+  type SandboxCreateProgress,
+  type SandboxError,
   WsRpcGroup,
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
@@ -82,6 +84,7 @@ import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
+import * as SandboxManager from "./sandbox/SandboxManager.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import {
   projectActivityEvent,
@@ -536,6 +539,7 @@ const makeWsRpcLayer = (
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
       const terminalManager = yield* TerminalManager.TerminalManager;
+      const sandboxManager = yield* SandboxManager.SandboxManager;
       const previewManager = yield* PreviewManager.PreviewManager;
       const deviceService = yield* DeviceService.DeviceService;
       const portDiscovery = yield* PortScanner.PortDiscovery;
@@ -2702,6 +2706,119 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.terminalClose, terminalManager.close(input), {
             "rpc.aggregate": "terminal",
           }),
+        [WS_METHODS.sandboxList]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.sandboxList,
+            sandboxManager.list.pipe(Effect.map((sandboxes) => ({ sandboxes }))),
+            { "rpc.aggregate": "sandbox" },
+          ),
+        [WS_METHODS.sandboxCreate]: (input) =>
+          observeRpcEffect(WS_METHODS.sandboxCreate, sandboxManager.create(input), {
+            "rpc.aggregate": "sandbox",
+          }),
+        [WS_METHODS.sandboxCreateStream]: (input) =>
+          observeRpcStream(
+            WS_METHODS.sandboxCreateStream,
+            Stream.callback<SandboxCreateProgress, SandboxError>((queue) =>
+              sandboxManager
+                .createWithProgress(input, (progress) =>
+                  Queue.offer(queue, progress).pipe(Effect.asVoid),
+                )
+                .pipe(
+                  Effect.matchEffect({
+                    onFailure: (error) => Queue.fail(queue, error),
+                    onSuccess: () => Queue.end(queue),
+                  }),
+                ),
+            ),
+            { "rpc.aggregate": "sandbox" },
+          ),
+        [WS_METHODS.sandboxAttach]: (input) =>
+          observeRpcEffect(WS_METHODS.sandboxAttach, sandboxManager.attach(input), {
+            "rpc.aggregate": "sandbox",
+          }),
+        [WS_METHODS.sandboxDetach]: (input) =>
+          observeRpcEffect(WS_METHODS.sandboxDetach, sandboxManager.detach(input), {
+            "rpc.aggregate": "sandbox",
+          }),
+        [WS_METHODS.sandboxTemplateList]: (_input) =>
+          observeRpcEffect(WS_METHODS.sandboxTemplateList, sandboxManager.templateList, {
+            "rpc.aggregate": "sandbox",
+          }),
+        [WS_METHODS.sandboxTemplateSave]: (input) =>
+          observeRpcEffect(WS_METHODS.sandboxTemplateSave, sandboxManager.templateSave(input), {
+            "rpc.aggregate": "sandbox",
+          }),
+        [WS_METHODS.sandboxTemplateDelete]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.sandboxTemplateDelete,
+            sandboxManager.templateRemove(input.templateId),
+            { "rpc.aggregate": "sandbox" },
+          ),
+        [WS_METHODS.sandboxTemplateSetDefault]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.sandboxTemplateSetDefault,
+            sandboxManager.templateSetDefault(input.templateId),
+            { "rpc.aggregate": "sandbox" },
+          ),
+        [WS_METHODS.sandboxTemplateExport]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.sandboxTemplateExport,
+            sandboxManager.templateExport(input.templateId),
+            { "rpc.aggregate": "sandbox" },
+          ),
+        [WS_METHODS.sandboxTemplateImport]: (input) =>
+          observeRpcEffect(WS_METHODS.sandboxTemplateImport, sandboxManager.templateImport(input), {
+            "rpc.aggregate": "sandbox",
+          }),
+        [WS_METHODS.sandboxTemplateValidate]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.sandboxTemplateValidate,
+            sandboxManager.templateValidate(input),
+            { "rpc.aggregate": "sandbox" },
+          ),
+        [WS_METHODS.sandboxStop]: (input) =>
+          observeRpcEffect(WS_METHODS.sandboxStop, sandboxManager.stop(input), {
+            "rpc.aggregate": "sandbox",
+          }),
+        [WS_METHODS.sandboxRemove]: (input) =>
+          observeRpcEffect(WS_METHODS.sandboxRemove, sandboxManager.remove(input), {
+            "rpc.aggregate": "sandbox",
+          }),
+        [WS_METHODS.sandboxSyncToHost]: (input) =>
+          observeRpcEffect(WS_METHODS.sandboxSyncToHost, sandboxManager.syncToHost(input), {
+            "rpc.aggregate": "sandbox",
+          }),
+        [WS_METHODS.sandboxSyncToRemote]: (input) =>
+          observeRpcEffect(WS_METHODS.sandboxSyncToRemote, sandboxManager.syncToRemote(input), {
+            "rpc.aggregate": "sandbox",
+          }),
+        [WS_METHODS.sandboxRemotePreview]: (input) =>
+          observeRpcEffect(WS_METHODS.sandboxRemotePreview, sandboxManager.remotePreview(input), {
+            "rpc.aggregate": "sandbox",
+          }),
+        [WS_METHODS.sandboxRemotePush]: (input) =>
+          observeRpcEffect(WS_METHODS.sandboxRemotePush, sandboxManager.remotePush(input), {
+            "rpc.aggregate": "sandbox",
+          }),
+        [WS_METHODS.sandboxNetworkOverview]: (_input) =>
+          observeRpcEffect(WS_METHODS.sandboxNetworkOverview, sandboxManager.networkOverview, {
+            "rpc.aggregate": "sandbox",
+          }),
+        [WS_METHODS.sandboxPolicyAddRule]: (input) =>
+          observeRpcEffect(WS_METHODS.sandboxPolicyAddRule, sandboxManager.policyAddRule(input), {
+            "rpc.aggregate": "sandbox",
+          }),
+        [WS_METHODS.sandboxActivity]: (input) =>
+          observeRpcEffect(WS_METHODS.sandboxActivity, sandboxManager.activity(input), {
+            "rpc.aggregate": "sandbox",
+          }),
+        [WS_METHODS.sandboxPolicyRemoveRule]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.sandboxPolicyRemoveRule,
+            sandboxManager.policyRemoveRule(input),
+            { "rpc.aggregate": "sandbox" },
+          ),
         [WS_METHODS.subscribeTerminalEvents]: (_input) =>
           observeRpcStream(
             WS_METHODS.subscribeTerminalEvents,

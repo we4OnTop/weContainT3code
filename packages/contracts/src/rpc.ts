@@ -251,6 +251,46 @@ import {
   SourceControlRepositoryLookupInput,
 } from "./sourceControl.ts";
 import { VcsError } from "./vcs.ts";
+import {
+  SandboxAttachInput,
+  SandboxAttachResult,
+  SandboxCreateInput,
+  SandboxCreateProgress,
+  SandboxCreateResult,
+  SandboxDetachResult,
+  SandboxError,
+  SandboxListInput,
+  SandboxListResult,
+  SandboxRemoveResult,
+  SandboxStopResult,
+  SandboxSyncToHostInput,
+  SandboxSyncToHostResult,
+  SandboxSyncToRemoteInput,
+  SandboxSyncToRemoteResult,
+  SandboxRemotePreviewInput,
+  SandboxRemotePreviewResult,
+  SandboxRemotePushInput,
+  SandboxNetworkOverviewInput,
+  SandboxNetworkOverviewResult,
+  SandboxPolicyAddRuleInput,
+  SandboxPolicyRemoveRuleInput,
+  SandboxActivityInput,
+  SandboxActivityResult,
+  SandboxRemotePushResult,
+  SandboxTargetInput,
+  SandboxTemplateDeleteResult,
+  SandboxTemplateExportResult,
+  SandboxTemplateImportInput,
+  SandboxTemplateImportResult,
+  SandboxTemplateListInput,
+  SandboxTemplateListResult,
+  SandboxTemplateSaveInput,
+  SandboxTemplateSaveResult,
+  SandboxTemplateSetDefaultResult,
+  SandboxTemplateTargetInput,
+  SandboxTemplateValidateInput,
+  SandboxTemplateValidateResult,
+} from "./sandbox.ts";
 
 export const WS_METHODS = {
   // Project registry methods
@@ -336,6 +376,30 @@ export const WS_METHODS = {
   deviceShutdown: "device.shutdown",
   deviceDetail: "device.detail",
   deviceAction: "device.action",
+
+  // Sandbox methods
+  sandboxList: "sandbox.list",
+  sandboxCreate: "sandbox.create",
+  sandboxCreateStream: "sandbox.createStream",
+  sandboxAttach: "sandbox.attach",
+  sandboxDetach: "sandbox.detach",
+  sandboxTemplateList: "sandbox.template.list",
+  sandboxTemplateSave: "sandbox.template.save",
+  sandboxTemplateDelete: "sandbox.template.delete",
+  sandboxTemplateSetDefault: "sandbox.template.setDefault",
+  sandboxTemplateExport: "sandbox.template.export",
+  sandboxTemplateImport: "sandbox.template.import",
+  sandboxTemplateValidate: "sandbox.template.validate",
+  sandboxStop: "sandbox.stop",
+  sandboxRemove: "sandbox.remove",
+  sandboxSyncToHost: "sandbox.syncToHost",
+  sandboxSyncToRemote: "sandbox.syncToRemote",
+  sandboxRemotePreview: "sandbox.remotePreview",
+  sandboxRemotePush: "sandbox.remotePush",
+  sandboxNetworkOverview: "sandbox.network.overview",
+  sandboxPolicyAddRule: "sandbox.policy.addRule",
+  sandboxPolicyRemoveRule: "sandbox.policy.removeRule",
+  sandboxActivity: "sandbox.activity",
 
   // Server meta
   serverProbe: "server.probe",
@@ -631,6 +695,144 @@ const WsCloudInstallRelayClientRpc = Rpc.make(WS_METHODS.cloudInstallRelayClient
   success: RelayClientInstallProgressEventSchema,
   error: Schema.Union([RelayClientInstallFailedError, EnvironmentAuthorizationError]),
   stream: true,
+});
+
+export const WsSandboxListRpc = Rpc.make(WS_METHODS.sandboxList, {
+  payload: SandboxListInput,
+  success: SandboxListResult,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+});
+
+export const WsSandboxCreateRpc = Rpc.make(WS_METHODS.sandboxCreate, {
+  payload: SandboxCreateInput,
+  success: SandboxCreateResult,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+});
+
+/**
+ * Streaming twin of `sandboxCreate`: same payload, but every initialization
+ * step is reported as it starts and finishes so the client can draw a pipeline
+ * instead of an indeterminate spinner. The final event carries the sandbox.
+ */
+export const WsSandboxCreateStreamRpc = Rpc.make(WS_METHODS.sandboxCreateStream, {
+  payload: SandboxCreateInput,
+  success: SandboxCreateProgress,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+export const WsSandboxAttachRpc = Rpc.make(WS_METHODS.sandboxAttach, {
+  payload: SandboxAttachInput,
+  success: SandboxAttachResult,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+});
+
+export const WsSandboxDetachRpc = Rpc.make(WS_METHODS.sandboxDetach, {
+  payload: SandboxAttachInput,
+  success: SandboxDetachResult,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+});
+
+export const WsSandboxTemplateListRpc = Rpc.make(WS_METHODS.sandboxTemplateList, {
+  payload: SandboxTemplateListInput,
+  success: SandboxTemplateListResult,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+});
+
+export const WsSandboxTemplateSaveRpc = Rpc.make(WS_METHODS.sandboxTemplateSave, {
+  payload: SandboxTemplateSaveInput,
+  success: SandboxTemplateSaveResult,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+});
+
+export const WsSandboxTemplateDeleteRpc = Rpc.make(WS_METHODS.sandboxTemplateDelete, {
+  payload: SandboxTemplateTargetInput,
+  success: SandboxTemplateDeleteResult,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+});
+
+export const WsSandboxTemplateSetDefaultRpc = Rpc.make(WS_METHODS.sandboxTemplateSetDefault, {
+  payload: SandboxTemplateTargetInput,
+  success: SandboxTemplateSetDefaultResult,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+});
+
+export const WsSandboxTemplateExportRpc = Rpc.make(WS_METHODS.sandboxTemplateExport, {
+  payload: SandboxTemplateTargetInput,
+  success: SandboxTemplateExportResult,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+});
+
+export const WsSandboxTemplateImportRpc = Rpc.make(WS_METHODS.sandboxTemplateImport, {
+  payload: SandboxTemplateImportInput,
+  success: SandboxTemplateImportResult,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+});
+
+export const WsSandboxTemplateValidateRpc = Rpc.make(WS_METHODS.sandboxTemplateValidate, {
+  payload: SandboxTemplateValidateInput,
+  success: SandboxTemplateValidateResult,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+});
+
+export const WsSandboxStopRpc = Rpc.make(WS_METHODS.sandboxStop, {
+  payload: SandboxTargetInput,
+  success: SandboxStopResult,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+});
+
+export const WsSandboxRemoveRpc = Rpc.make(WS_METHODS.sandboxRemove, {
+  payload: SandboxTargetInput,
+  success: SandboxRemoveResult,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+});
+
+export const WsSandboxSyncToHostRpc = Rpc.make(WS_METHODS.sandboxSyncToHost, {
+  payload: SandboxSyncToHostInput,
+  success: SandboxSyncToHostResult,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+});
+
+export const WsSandboxSyncToRemoteRpc = Rpc.make(WS_METHODS.sandboxSyncToRemote, {
+  payload: SandboxSyncToRemoteInput,
+  success: SandboxSyncToRemoteResult,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+});
+
+export const WsSandboxRemotePreviewRpc = Rpc.make(WS_METHODS.sandboxRemotePreview, {
+  payload: SandboxRemotePreviewInput,
+  success: SandboxRemotePreviewResult,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+});
+
+export const WsSandboxRemotePushRpc = Rpc.make(WS_METHODS.sandboxRemotePush, {
+  payload: SandboxRemotePushInput,
+  success: SandboxRemotePushResult,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+});
+
+export const WsSandboxNetworkOverviewRpc = Rpc.make(WS_METHODS.sandboxNetworkOverview, {
+  payload: SandboxNetworkOverviewInput,
+  success: SandboxNetworkOverviewResult,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+});
+
+export const WsSandboxPolicyAddRuleRpc = Rpc.make(WS_METHODS.sandboxPolicyAddRule, {
+  payload: SandboxPolicyAddRuleInput,
+  success: SandboxNetworkOverviewResult,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+});
+
+export const WsSandboxPolicyRemoveRuleRpc = Rpc.make(WS_METHODS.sandboxPolicyRemoveRule, {
+  payload: SandboxPolicyRemoveRuleInput,
+  success: SandboxNetworkOverviewResult,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+});
+
+export const WsSandboxActivityRpc = Rpc.make(WS_METHODS.sandboxActivity, {
+  payload: SandboxActivityInput,
+  success: SandboxActivityResult,
+  error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
 });
 
 const WsServerReportClientActivityRpc = Rpc.make(WS_METHODS.serverReportClientActivity, {
@@ -1386,6 +1588,28 @@ export const WsRpcGroup = RpcGroup.make(
   WsPreviewAutomationRespondRpc,
   WsPreviewAutomationFocusHostRpc,
   WsSubscribePreviewEventsRpc,
+  WsSandboxListRpc,
+  WsSandboxCreateRpc,
+  WsSandboxCreateStreamRpc,
+  WsSandboxAttachRpc,
+  WsSandboxDetachRpc,
+  WsSandboxTemplateListRpc,
+  WsSandboxTemplateSaveRpc,
+  WsSandboxTemplateDeleteRpc,
+  WsSandboxTemplateSetDefaultRpc,
+  WsSandboxTemplateExportRpc,
+  WsSandboxTemplateImportRpc,
+  WsSandboxTemplateValidateRpc,
+  WsSandboxStopRpc,
+  WsSandboxRemoveRpc,
+  WsSandboxSyncToHostRpc,
+  WsSandboxSyncToRemoteRpc,
+  WsSandboxRemotePreviewRpc,
+  WsSandboxRemotePushRpc,
+  WsSandboxNetworkOverviewRpc,
+  WsSandboxPolicyAddRuleRpc,
+  WsSandboxPolicyRemoveRuleRpc,
+  WsSandboxActivityRpc,
   WsSubscribeDiscoveredLocalServersRpc,
   WsDeviceConfigureRpc,
   WsDeviceListRpc,

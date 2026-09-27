@@ -171,6 +171,10 @@
       "types": "./src/state/runtime.ts",
       "default": "./src/state/runtime.ts"
     },
+    "./state/sandbox": {
+      "types": "./src/state/sandbox.ts",
+      "default": "./src/state/sandbox.ts"
+    },
     "./state/usage": {
       "types": "./src/state/usage.ts",
       "default": "./src/state/usage.ts"

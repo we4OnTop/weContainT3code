@@ -396,6 +396,53 @@ export function createRuntimeCommand<R, ER, W, A, E>(
   };
 }
 
+/**
+ * Command whose work arrives as a stream instead of one reply. The caller taps
+ * the stream for progress, so a long-running call renders step by step; the
+ * command itself resolves with the final element. `onSettled` runs on success
+ * and on failure, which is where a partially-applied change gets refreshed
+ * back into the read model.
+ */
+export function createRuntimeStreamCommand<R, ER, W, A, E>(
+  runtime: Atom.AtomRuntime<R, ER>,
+  options: {
+    readonly label: string;
+    readonly execute: (input: W, registry: AtomRegistry.AtomRegistry) => Stream.Stream<A, E, R>;
+    readonly scheduler?: AtomCommandScheduler;
+    readonly concurrency?: AtomCommandConcurrency<W>;
+    readonly onSettled?: (
+      input: W,
+      registry: AtomRegistry.AtomRegistry,
+    ) => Effect.Effect<void, never, R>;
+  },
+): AtomCommand<W, A, E | ER> {
+  const scheduler = options.scheduler ?? createAtomCommandScheduler();
+  const concurrency = options.concurrency ?? { mode: "parallel" as const };
+  return {
+    label: options.label,
+    run: (registry, input) =>
+      settleAtomCommandResult(() =>
+        scheduler.schedule(registry, concurrency, input, () => {
+          const atom = runtime
+            .atom(
+              Stream.runLast(options.execute(input, registry)).pipe(
+                Effect.flatMap(
+                  Option.match({
+                    onNone: () =>
+                      Effect.die(new Error(`${options.label} closed without emitting a result`)),
+                    onSome: (value: A) => Effect.succeed(value),
+                  }),
+                ),
+                Effect.ensuring(options.onSettled?.(input, registry) ?? Effect.void),
+              ),
+            )
+            .pipe(Atom.withLabel(options.label));
+          return executeAtomQuery(registry, atom, { reportDefect: false, reportFailure: false });
+        }),
+      ),
+  };
+}
+
 export function reportAtomCommandResult(
   result: AtomCommandResult<unknown, unknown>,
   options: AtomCommandOptions = {},

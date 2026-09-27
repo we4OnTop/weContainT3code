@@ -1,4 +1,13 @@
-import { ChevronsLeftRightEllipsisIcon, PlusIcon, QrCodeIcon, TerminalIcon } from "lucide-react";
+import {
+  ChevronsLeftRightEllipsisIcon,
+  ContainerIcon,
+  PlusIcon,
+  QrCodeIcon,
+  TerminalIcon,
+} from "lucide-react";
+import type { SandboxInfo } from "@t3tools/contracts";
+import { Badge } from "../ui/badge";
+import { sandboxProjectName, useHostSandboxesByEnvironmentId } from "~/state/sandbox";
 import { useAtomValue } from "@effect/atom-react";
 import {
   type KeyboardEvent,
@@ -1398,6 +1407,8 @@ function NetworkAccessDescription({
 
 type SavedBackendListRowProps = {
   environment: EnvironmentPresentation;
+  /** Set when the host created this connection's server as a Docker sandbox. */
+  sandbox: SandboxInfo | null;
   removingEnvironmentId: EnvironmentId | null;
   onConnect: (environmentId: EnvironmentId) => void;
   onRemove: (environmentId: EnvironmentId) => void;
@@ -1405,6 +1416,7 @@ type SavedBackendListRowProps = {
 
 function SavedBackendListRow({
   environment,
+  sandbox,
   removingEnvironmentId,
   onConnect,
   onRemove,
@@ -1459,6 +1471,7 @@ function SavedBackendListRow({
       ? environment.entry.profile.value.target
       : null;
   const metadataBits = [
+    sandbox ? `Docker sandbox of ${sandboxProjectName(sandbox)} · ${sandbox.status}` : null,
     sshTarget ? `SSH ${formatDesktopSshTarget(sshTarget)}` : null,
     environment.relayManaged ? "T3 Connect" : null,
   ].filter((value): value is string => value !== null);
@@ -1483,14 +1496,23 @@ function SavedBackendListRow({
                   : null
               }
             />
-            <EnvironmentMachineIcon
-              aria-hidden
-              kind={resolveEnvironmentMachineKind(environment.serverConfig)}
-              className="size-3.5 shrink-0 text-muted-foreground"
-            />
+            {sandbox ? (
+              <ContainerIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+            ) : (
+              <EnvironmentMachineIcon
+                aria-hidden
+                kind={resolveEnvironmentMachineKind(environment.serverConfig)}
+                className="size-3.5 shrink-0 text-muted-foreground"
+              />
+            )}
             <h3 className="min-w-0 truncate text-sm font-medium text-foreground">
               {environment.label}
             </h3>
+            {sandbox ? (
+              <Badge size="sm" variant="outline" className="shrink-0">
+                Sandbox
+              </Badge>
+            ) : null}
           </div>
           {metadataBits.length > 0 ? (
             <p className="truncate text-xs text-muted-foreground">{metadataBits.join(" · ")}</p>
@@ -1782,6 +1804,7 @@ export function ConnectionsSettings() {
   });
   const removeEnvironment = useAtomCommand(environmentCatalog.remove, { reportFailure: false });
   const retryEnvironment = useAtomCommand(environmentCatalog.retryNow, { reportFailure: false });
+  const hostSandboxes = useHostSandboxesByEnvironmentId();
   const primaryEnvironmentId = primaryEnvironment?.environmentId ?? null;
   const primarySessionState = usePrimarySessionState();
   const currentSessionScopes = desktopBridge
@@ -3589,6 +3612,7 @@ export function ConnectionsSettings() {
           <SavedBackendListRow
             key={environment.environmentId}
             environment={environment}
+            sandbox={hostSandboxes.get(environment.environmentId) ?? null}
             removingEnvironmentId={removingSavedEnvironmentId}
             onConnect={handleConnectSavedBackend}
             onRemove={handleRemoveSavedBackend}

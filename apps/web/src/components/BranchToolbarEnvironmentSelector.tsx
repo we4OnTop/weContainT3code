@@ -1,9 +1,10 @@
 import type { EnvironmentId } from "@t3tools/contracts";
-import { ScaleIcon } from "lucide-react";
+import { ContainerIcon, ScaleIcon } from "lucide-react";
 import { memo, useMemo } from "react";
 
 import type { EnvironmentOption } from "./BranchToolbar.logic";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
+import { useHostSandboxesByEnvironmentId } from "~/state/sandbox";
 import { composerFloatingLayerProps } from "./chat/composerEventScope";
 import {
   Select,
@@ -34,6 +35,18 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
   availableEnvironments,
   onEnvironmentChange,
 }: BranchToolbarEnvironmentSelectorProps) {
+  // Sandboxes are marked from the host's own records, never from what a
+  // sandbox's server says about itself.
+  const hostSandboxes = useHostSandboxesByEnvironmentId();
+  const labelOf = (env: EnvironmentOption) =>
+    hostSandboxes.has(env.environmentId) ? `${env.label} · sandbox` : env.label;
+  const iconOf = (env: EnvironmentOption | null, className: string) =>
+    env !== null && hostSandboxes.has(env.environmentId) ? (
+      <ContainerIcon className={className} aria-hidden="true" />
+    ) : (
+      <EnvironmentMachineIcon kind={env?.machine ?? "server"} className={className} />
+    );
+
   const activeEnvironment = useMemo(() => {
     return availableEnvironments.find((env) => env.environmentId === environmentId) ?? null;
   }, [availableEnvironments, environmentId]);
@@ -45,10 +58,10 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
         : []),
       ...availableEnvironments.map((env) => ({
         value: env.environmentId,
-        label: env.label,
+        label: hostSandboxes.has(env.environmentId) ? `${env.label} · sandbox` : env.label,
       })),
     ],
-    [availableEnvironments, autoEnvironmentLabel, onAutoEnvironment],
+    [availableEnvironments, autoEnvironmentLabel, onAutoEnvironment, hostSandboxes],
   );
 
   // The static label carries the xs control's height (h-7 sm:h-6) as well as
@@ -62,10 +75,7 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
         className="inline-flex h-7 min-w-0 max-w-full items-center gap-1 border border-transparent px-[calc(--spacing(2)-1px)] font-normal text-muted-foreground/70 text-xs sm:h-6"
         data-composer-context-control
       >
-        <EnvironmentMachineIcon
-          kind={activeEnvironment?.machine ?? "server"}
-          className="size-3 shrink-0"
-        />
+        {iconOf(activeEnvironment, "size-3 shrink-0")}
         <span
           data-composer-label
           className="min-w-0 max-w-[240px] group-data-[compact]/composer-context:max-w-0"
@@ -74,7 +84,7 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
             data-composer-label-motion
             className="block w-full min-w-0 max-w-[240px] truncate transition-opacity duration-180 ease-[cubic-bezier(0.32,0.72,0,1)] group-data-[compact]/composer-context:opacity-0 motion-reduce:transition-none"
           >
-            {activeEnvironment?.label ?? "Run on"}
+            {activeEnvironment === null ? "Run on" : labelOf(activeEnvironment)}
           </span>
         </span>
       </span>
@@ -100,10 +110,7 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
         {autoEnvironmentLabel ? (
           <ScaleIcon className="size-3 shrink-0" aria-hidden="true" />
         ) : (
-          <EnvironmentMachineIcon
-            kind={activeEnvironment?.machine ?? "server"}
-            className="size-3 shrink-0"
-          />
+          iconOf(activeEnvironment, "size-3 shrink-0")
         )}
         <span
           data-composer-label
@@ -136,8 +143,8 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
           {availableEnvironments.map((env) => (
             <SelectItem key={env.environmentId} value={env.environmentId}>
               <span className="inline-flex items-center gap-1.5">
-                <EnvironmentMachineIcon kind={env.machine} className="size-3" />
-                {env.label}
+                {iconOf(env, "size-3")}
+                {labelOf(env)}
               </span>
             </SelectItem>
           ))}

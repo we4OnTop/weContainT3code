@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "gortex": {
+    "exclude": [
+      ".repos/",
+      "node_modules/",
+      "vendor/",
+      "dist/",
+      "build/",
+      ".next/",
+      "out/",
+      "target/",
+      ".venv/",
+      ".gradle/",
+      ".terraform/",
+      ".mypy_cache/",
+      ".pytest_cache/",
+      "coverage/",
+      ".cache/"
+    ]
+  }
+}
