@@ -111,10 +111,6 @@ export function SandboxesMenu() {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"sandboxes" | "templates">("sandboxes");
   const [observatoryOpen, setObservatoryOpen] = useState(false);
-  // Opening a dialog in the same click that closes the sheet lets that click
-  // count as an outside press and close the dialog again; open it once the
-  // sheet has finished closing.
-  const [observatoryQueued, setObservatoryQueued] = useState(false);
 
   const sandboxEnvironments = environments.filter(
     (environment) => environment.serverConfig?.environment.capabilities.sandboxes === true,
@@ -135,16 +131,7 @@ export function SandboxesMenu() {
 
   return (
     <>
-      <Sheet
-        open={open}
-        onOpenChange={setOpen}
-        onOpenChangeComplete={(isOpen) => {
-          if (!isOpen && observatoryQueued) {
-            setObservatoryQueued(false);
-            setObservatoryOpen(true);
-          }
-        }}
-      >
+      <Sheet open={open} onOpenChange={setOpen}>
         <Tooltip>
           <TooltipTrigger
             render={
@@ -163,16 +150,22 @@ export function SandboxesMenu() {
           </TooltipTrigger>
           <TooltipPopup side="top">Sandboxes</TooltipPopup>
         </Tooltip>
-        <SheetContent side="left" className="flex w-[30rem] max-w-[92vw] flex-col">
-          {/* pe-12 keeps the tabs clear of the sheet's close button in the corner. */}
-          <div className="flex items-center gap-1 border-b py-3 ps-4 pe-12">
+        <SheetContent
+          side="left"
+          // The desktop title bar under the header is a window drag area,
+          // which would swallow clicks on the tabs.
+          className="flex w-[30rem] max-w-[92vw] flex-col [-webkit-app-region:no-drag]"
+        >
+          {/* The corners belong to the sheet's close button (right) and the
+              app's floating sidebar toggle (left). */}
+          <div className="flex items-center gap-1 border-b py-3 ps-12 pe-12">
             <h2 className="mr-auto text-sm font-medium">Sandboxes</h2>
             <Button
               size="sm"
               variant="ghost-muted"
               onClick={() => {
-                setObservatoryQueued(true);
                 setOpen(false);
+                setObservatoryOpen(true);
               }}
             >
               Observatory

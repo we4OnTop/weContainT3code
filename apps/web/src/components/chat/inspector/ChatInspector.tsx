@@ -102,7 +102,11 @@ export function ChatInspectorButton({
         <TooltipPopup side="bottom">Inspect chat: tools, subagents, context</TooltipPopup>
       </Tooltip>
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="right" className="w-[min(64rem,96vw)] max-w-none">
+        <SheetContent
+          side="right"
+          // Keep clicks on the header out of the desktop title bar drag area.
+          className="w-[min(64rem,96vw)] max-w-none [-webkit-app-region:no-drag]"
+        >
           {open ? <ChatInspectorPanel environmentId={environmentId} threadId={threadId} /> : null}
         </SheetContent>
       </Sheet>
@@ -155,15 +159,10 @@ export function ChatInspectorPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3 pe-12">
-        <h2 className="mr-auto text-sm font-medium">Chat inspector</h2>
-        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Switch checked={live} onCheckedChange={setLive} />
-          Live
-        </label>
-        <Button size="xs" variant="ghost" aria-label="Refresh" onClick={() => void refresh()}>
-          {loading ? <Spinner /> : <RefreshCwIcon />}
-        </Button>
+      {/* The title row stays free on the right: the app's window controls
+          float above docked sheets there. */}
+      <div className="border-b py-3 ps-4 pe-12">
+        <h2 className="text-sm font-medium">Chat inspector</h2>
       </div>
       <div className="flex flex-wrap items-center gap-1 border-b px-4 py-2">
         {TABS.map(([value, label]) => (
@@ -178,13 +177,23 @@ export function ChatInspectorPanel({
             {inspection !== null && value === "subagents" ? ` ${inspection.totals.subagents}` : ""}
           </Button>
         ))}
+        <label className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Switch checked={live} onCheckedChange={setLive} />
+          Live
+        </label>
+        <Button size="xs" variant="ghost" aria-label="Refresh" onClick={() => void refresh()}>
+          {loading ? <Spinner /> : <RefreshCwIcon />}
+        </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {error !== null ? (
-          <p className="mb-2 text-destructive text-xs">
-            {error}. A chat in a sandbox needs the sandbox&apos;s T3 server to be at least as new as
-            this app.
-          </p>
+          <div className="mb-2 text-xs">
+            <p className="text-destructive">{error}</p>
+            <p className="text-muted-foreground">
+              For a chat in a sandbox, the sandbox has to be running and its T3 server at least as
+              new as this app.
+            </p>
+          </div>
         ) : null}
         {inspection === null ? (
           loading ? (
