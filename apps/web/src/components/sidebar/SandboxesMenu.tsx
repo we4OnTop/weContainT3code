@@ -34,7 +34,7 @@ import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
 import { Separator } from "../ui/separator";
-import { Sheet, SheetContent, SheetTrigger } from "../ui/sheet";
+import { Sheet, SheetContent } from "../ui/sheet";
 import { Spinner } from "../ui/spinner";
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
@@ -135,25 +135,22 @@ export function SandboxesMenu() {
         <Tooltip>
           <TooltipTrigger
             render={
-              <SheetTrigger
-                render={
-                  <button
-                    type="button"
-                    aria-label={`Sandboxes (${activeCount} running)`}
-                    className="relative inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <ContainerIcon className="size-4" />
-                    {activeCount > 0 ? (
-                      <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-primary" />
-                    ) : null}
-                  </button>
-                }
+              <button
+                type="button"
+                aria-label={`Sandboxes (${activeCount} running)`}
+                onClick={() => setOpen(true)}
+                className="relative inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               />
             }
-          />
+          >
+            <ContainerIcon className="size-4" />
+            {activeCount > 0 ? (
+              <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-primary" />
+            ) : null}
+          </TooltipTrigger>
           <TooltipPopup side="top">Sandboxes</TooltipPopup>
         </Tooltip>
-        <SheetContent side="left" className="flex w-[30rem] max-w-[92vw] flex-col gap-0 p-0">
+        <SheetContent side="left" className="flex w-[30rem] max-w-[92vw] flex-col">
           <div className="flex items-center gap-1 border-b px-4 py-3">
             <h2 className="mr-auto text-sm font-medium">Sandboxes</h2>
             <Button
@@ -692,7 +689,6 @@ function TemplateEditor({
               gortex excludes (one pattern per line, empty for the built-in list)
               <Textarea
                 rows={3}
-                className="font-mono text-xs"
                 value={(manifest.gortexExclude ?? []).join("\n")}
                 onChange={(event) => {
                   const patterns = event.target.value
@@ -789,7 +785,6 @@ function TemplateEditor({
           {draft.dockerfile !== undefined ? (
             <Textarea
               rows={10}
-              className="font-mono text-xs"
               value={draft.dockerfile}
               onChange={(event) => onDraftChange({ ...draft, dockerfile: event.target.value })}
             />

@@ -5,7 +5,7 @@ import { memo, useMemo } from "react";
 import type { EnvironmentOption } from "./BranchToolbar.logic";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { useHostSandboxesByEnvironmentId } from "~/state/sandbox";
-import { composerFloatingLayerProps } from "./chat/composerEventScope";
+import { useComposerMenuProps } from "./chat/composerEventScope";
 import {
   Select,
   SelectGroup,
@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 interface BranchToolbarEnvironmentSelectorProps {
   autoEnvironmentLabel?: string | undefined;
@@ -35,6 +36,7 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
   availableEnvironments,
   onEnvironmentChange,
 }: BranchToolbarEnvironmentSelectorProps) {
+  const composerFloatingLayerProps = useComposerMenuProps();
   // Sandboxes are marked from the host's own records, never from what a
   // sandbox's server says about itself.
   const hostSandboxes = useHostSandboxesByEnvironmentId();
@@ -46,7 +48,6 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
     ) : (
       <EnvironmentMachineIcon kind={env?.machine ?? "server"} className={className} />
     );
-
   const activeEnvironment = useMemo(() => {
     return availableEnvironments.find((env) => env.environmentId === environmentId) ?? null;
   }, [availableEnvironments, environmentId]);
@@ -71,23 +72,29 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
   // only thing in the strip.
   if (envLocked || onEnvironmentChange === undefined) {
     return (
-      <span
-        className="inline-flex h-7 min-w-0 max-w-full items-center gap-1 border border-transparent px-[calc(--spacing(2)-1px)] font-normal text-muted-foreground/70 text-xs sm:h-6"
-        data-composer-context-control
-      >
-        {iconOf(activeEnvironment, "size-3 shrink-0")}
-        <span
-          data-composer-label
-          className="min-w-0 max-w-[240px] group-data-[compact]/composer-context:max-w-0"
+      <Tooltip>
+        <TooltipTrigger
+          render={<span />}
+          className="inline-flex h-7 min-w-0 max-w-full items-center gap-1 border border-transparent px-1.75 font-normal text-muted-foreground/70 text-xs sm:h-6"
+          data-composer-context-control
         >
+          {iconOf(activeEnvironment, "size-3 shrink-0")}
           <span
-            data-composer-label-motion
-            className="block w-full min-w-0 max-w-[240px] truncate transition-opacity duration-180 ease-[cubic-bezier(0.32,0.72,0,1)] group-data-[compact]/composer-context:opacity-0 motion-reduce:transition-none"
+            data-composer-label
+            className="min-w-0 max-w-[240px] group-data-[compact]/composer-context:max-w-0"
           >
-            {activeEnvironment === null ? "Run on" : labelOf(activeEnvironment)}
+            <span
+              data-composer-label-motion
+              className="block w-full min-w-0 max-w-[240px] truncate transition-opacity duration-180 ease-drawer group-data-[compact]/composer-context:opacity-0 motion-reduce:transition-none"
+            >
+              {activeEnvironment === null ? "Run on" : labelOf(activeEnvironment)}
+            </span>
           </span>
-        </span>
-      </span>
+        </TooltipTrigger>
+        <TooltipPopup>
+          {activeEnvironment === null ? "Run on" : labelOf(activeEnvironment)}
+        </TooltipPopup>
+      </Tooltip>
     );
   }
 
@@ -100,30 +107,38 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
       }
       items={environmentItems}
     >
-      <SelectTrigger
-        variant="ghost"
-        size="xs"
-        className="min-w-0 max-w-full font-normal text-xs!"
-        aria-label="Run on"
-        data-composer-context-control
-      >
-        {autoEnvironmentLabel ? (
-          <ScaleIcon className="size-3 shrink-0" aria-hidden="true" />
-        ) : (
-          iconOf(activeEnvironment, "size-3 shrink-0")
-        )}
-        <span
-          data-composer-label
-          className="min-w-0 max-w-[240px] group-data-[compact]/composer-context:max-w-0"
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <SelectTrigger
+              variant="ghost"
+              size="xs"
+              className="min-w-0 max-w-full"
+              aria-label="Run on"
+              data-composer-shortcut="composer.host"
+              data-composer-context-control
+            />
+          }
         >
+          {autoEnvironmentLabel ? (
+            <ScaleIcon className="size-3 shrink-0" aria-hidden="true" />
+          ) : (
+            iconOf(activeEnvironment, "size-3 shrink-0")
+          )}
           <span
-            data-composer-label-motion
-            className="block w-full min-w-0 max-w-[240px] truncate transition-opacity duration-180 ease-[cubic-bezier(0.32,0.72,0,1)] group-data-[compact]/composer-context:opacity-0 motion-reduce:transition-none"
+            data-composer-label
+            className="min-w-0 max-w-[240px] group-data-[compact]/composer-context:max-w-0"
           >
-            <SelectValue />
+            <span
+              data-composer-label-motion
+              className="block w-full min-w-0 max-w-[240px] truncate transition-opacity duration-180 ease-drawer group-data-[compact]/composer-context:opacity-0 motion-reduce:transition-none"
+            >
+              <SelectValue />
+            </span>
           </span>
-        </span>
-      </SelectTrigger>
+        </TooltipTrigger>
+        <TooltipPopup>{autoEnvironmentLabel ?? activeEnvironment?.label ?? "Run on"}</TooltipPopup>
+      </Tooltip>
       <SelectPopup alignItemWithTrigger={false} {...composerFloatingLayerProps}>
         <SelectGroup>
           <SelectGroupLabel>Run on</SelectGroupLabel>

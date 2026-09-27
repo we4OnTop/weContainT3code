@@ -252,297 +252,299 @@ export function SandboxRemotePushDialog({
             author before anything is pushed.
           </DialogDescription>
         </DialogHeader>
-        <DialogPanel className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto">
-          <section className="flex flex-col gap-2">
-            <div className="flex flex-wrap items-end gap-2">
-              <div className="flex flex-col gap-1">
-                <span className="text-xs font-medium">Remote</span>
-                <div className="flex flex-wrap gap-1">
-                  {(preview?.remotes ?? []).map((remote) => (
-                    <Button
-                      key={remote.name}
-                      size="xs"
-                      variant={remote.name === remoteName ? "secondary" : "ghost-muted"}
-                      title={remote.url}
-                      disabled={busy !== null}
-                      onClick={() => {
-                        setRemoteName(remote.name);
-                        loadPreview({ remoteName: remote.name, targetBranch });
-                      }}
-                    >
-                      {remote.name}
-                    </Button>
-                  ))}
-                  {preview === null ? (
-                    <span className="text-muted-foreground text-xs">—</span>
-                  ) : null}
-                </div>
-              </div>
-              <label className="flex min-w-48 flex-1 flex-col gap-1 text-xs font-medium">
-                Branch
-                <Input
-                  value={targetBranch}
-                  disabled={busy !== null}
-                  onChange={(event) => setTargetBranch(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") loadPreview({ remoteName, targetBranch });
-                  }}
-                />
-              </label>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={busy !== null}
-                onClick={() => loadPreview({ remoteName, targetBranch })}
-              >
-                {busy === "preview" ? <Spinner className="size-3.5" /> : <RefreshCwIcon />}
-                Refresh
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={busy !== null || sandbox.status !== "running"}
-                title="Sync the sandbox to the host and mirror it into the git receiver"
-                onClick={pullFromSandbox}
-              >
-                {busy === "sync" ? <Spinner className="size-3.5" /> : <DownloadIcon />}
-                Pull latest from sandbox
-              </Button>
-            </div>
-            {previewError !== null ? (
-              <p className="text-destructive text-sm">{previewError}</p>
-            ) : null}
-          </section>
-
-          {preview === null ? (
-            busy === "preview" ? (
-              <div className="text-muted-foreground flex items-center gap-2 text-sm">
-                <Spinner className="size-3.5" /> Reading the git receiver and the remote…
-              </div>
-            ) : null
-          ) : (
-            <>
-              <section className="flex flex-col gap-1.5">
-                <div className="flex flex-wrap items-center gap-2 text-sm">
-                  <Badge size="sm" variant={RELATION_VARIANT[preview.relation]}>
-                    {RELATION_LABEL[preview.relation]}
-                  </Badge>
-                  <span className="font-mono text-xs">
-                    receiver {preview.sourceSha.slice(0, 10)}
-                  </span>
-                  <span className="text-muted-foreground text-xs">→</span>
-                  <span className="font-mono text-xs">
-                    {preview.remoteName}/{preview.targetBranch}
-                    {preview.remoteSha === null ? " (new)" : ` @ ${preview.remoteSha.slice(0, 10)}`}
-                  </span>
-                </div>
-                {preview.relation === "diverged" ? (
-                  <label className="flex items-start gap-2 text-sm">
-                    <Checkbox
-                      checked={force}
-                      onCheckedChange={(checked) => setForce(checked === true)}
-                    />
-                    <span>
-                      The remote branch has commits the sandbox work does not contain. Replace it
-                      (force-with-lease on {preview.remoteSha?.slice(0, 10)}); those commits will no
-                      longer be on the branch.
-                    </span>
-                  </label>
-                ) : null}
-              </section>
-
-              {preview.files.some((file) => file.hostRisk !== null) ? (
-                <section className="flex flex-col gap-1 rounded-md border border-warning/40 bg-warning/8 p-2 text-xs">
-                  <p className="flex items-center gap-1.5 font-medium">
-                    <TriangleAlertIcon className="size-3.5 text-warning" aria-hidden="true" />
-                    Review these before this work reaches a checkout
-                  </p>
-                  <p className="text-muted-foreground">
-                    Tools on your machine act on these files by themselves. Code written in the
-                    sandbox can run on the host through them once the branch is checked out.
-                  </p>
-                  <ul className="flex flex-col gap-0.5">
-                    {preview.files
-                      .filter((file) => file.hostRisk !== null)
-                      .map((file) => (
-                        <li key={file.path} className="flex gap-2">
-                          <span className="shrink-0 font-mono">{file.path}</span>
-                          <span className="text-muted-foreground truncate">{file.hostRisk}</span>
-                        </li>
-                      ))}
-                  </ul>
-                </section>
-              ) : null}
-
-              <section className="flex flex-col gap-1">
-                <h3 className="text-xs font-medium">
-                  Commits ({preview.commits.length}
-                  {preview.commitsTruncated ? "+, newest shown" : ""})
-                </h3>
-                {preview.commits.length === 0 ? (
-                  <p className="text-muted-foreground text-sm">
-                    Nothing new: the remote branch already has this work.
-                  </p>
-                ) : (
-                  <ol className="max-h-44 overflow-y-auto rounded-md border text-xs">
-                    {preview.commits.map((commit) => (
-                      <li
-                        key={commit.sha}
-                        className="flex items-baseline gap-2 border-b px-2 py-1 last:border-b-0"
+        <DialogPanel className="max-h-[70vh] overflow-y-auto">
+          <div className="flex flex-col gap-4">
+            <section className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs font-medium">Remote</span>
+                  <div className="flex flex-wrap gap-1">
+                    {(preview?.remotes ?? []).map((remote) => (
+                      <Button
+                        key={remote.name}
+                        size="xs"
+                        variant={remote.name === remoteName ? "secondary" : "ghost-muted"}
+                        title={remote.url}
+                        disabled={busy !== null}
+                        onClick={() => {
+                          setRemoteName(remote.name);
+                          loadPreview({ remoteName: remote.name, targetBranch });
+                        }}
                       >
-                        <span className="text-muted-foreground font-mono">
-                          {commit.sha.slice(0, 8)}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate">{commit.subject}</span>
-                        <span className="text-muted-foreground shrink-0">{commit.authorName}</span>
-                        <span className="text-muted-foreground shrink-0">
-                          {formatDate(commit.authoredAt)}
-                        </span>
-                      </li>
+                        {remote.name}
+                      </Button>
                     ))}
-                  </ol>
-                )}
-              </section>
+                    {preview === null ? (
+                      <span className="text-muted-foreground text-xs">—</span>
+                    ) : null}
+                  </div>
+                </div>
+                <label className="flex min-w-48 flex-1 flex-col gap-1 text-xs font-medium">
+                  Branch
+                  <Input
+                    value={targetBranch}
+                    disabled={busy !== null}
+                    onChange={(event) => setTargetBranch(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") loadPreview({ remoteName, targetBranch });
+                    }}
+                  />
+                </label>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy !== null}
+                  onClick={() => loadPreview({ remoteName, targetBranch })}
+                >
+                  {busy === "preview" ? <Spinner className="size-3.5" /> : <RefreshCwIcon />}
+                  Refresh
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy !== null || sandbox.status !== "running"}
+                  title="Sync the sandbox to the host and mirror it into the git receiver"
+                  onClick={pullFromSandbox}
+                >
+                  {busy === "sync" ? <Spinner className="size-3.5" /> : <DownloadIcon />}
+                  Pull latest from sandbox
+                </Button>
+              </div>
+              {previewError !== null ? (
+                <p className="text-destructive text-sm">{previewError}</p>
+              ) : null}
+            </section>
 
-              {preview.files.length > 0 ? (
+            {preview === null ? (
+              busy === "preview" ? (
+                <div className="text-muted-foreground flex items-center gap-2 text-sm">
+                  <Spinner className="size-3.5" /> Reading the git receiver and the remote…
+                </div>
+              ) : null
+            ) : (
+              <>
+                <section className="flex flex-col gap-1.5">
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <Badge size="sm" variant={RELATION_VARIANT[preview.relation]}>
+                      {RELATION_LABEL[preview.relation]}
+                    </Badge>
+                    <span className="font-mono text-xs">
+                      receiver {preview.sourceSha.slice(0, 10)}
+                    </span>
+                    <span className="text-muted-foreground text-xs">→</span>
+                    <span className="font-mono text-xs">
+                      {preview.remoteName}/{preview.targetBranch}
+                      {preview.remoteSha === null
+                        ? " (new)"
+                        : ` @ ${preview.remoteSha.slice(0, 10)}`}
+                    </span>
+                  </div>
+                  {preview.relation === "diverged" ? (
+                    <label className="flex items-start gap-2 text-sm">
+                      <Checkbox
+                        checked={force}
+                        onCheckedChange={(checked) => setForce(checked === true)}
+                      />
+                      <span>
+                        The remote branch has commits the sandbox work does not contain. Replace it
+                        (force-with-lease on {preview.remoteSha?.slice(0, 10)}); those commits will
+                        no longer be on the branch.
+                      </span>
+                    </label>
+                  ) : null}
+                </section>
+
+                {preview.files.some((file) => file.hostRisk !== null) ? (
+                  <section className="flex flex-col gap-1 rounded-md border border-warning/40 bg-warning/8 p-2 text-xs">
+                    <p className="flex items-center gap-1.5 font-medium">
+                      <TriangleAlertIcon className="size-3.5 text-warning" aria-hidden="true" />
+                      Review these before this work reaches a checkout
+                    </p>
+                    <p className="text-muted-foreground">
+                      Tools on your machine act on these files by themselves. Code written in the
+                      sandbox can run on the host through them once the branch is checked out.
+                    </p>
+                    <ul className="flex flex-col gap-0.5">
+                      {preview.files
+                        .filter((file) => file.hostRisk !== null)
+                        .map((file) => (
+                          <li key={file.path} className="flex gap-2">
+                            <span className="shrink-0 font-mono">{file.path}</span>
+                            <span className="text-muted-foreground truncate">{file.hostRisk}</span>
+                          </li>
+                        ))}
+                    </ul>
+                  </section>
+                ) : null}
+
                 <section className="flex flex-col gap-1">
                   <h3 className="text-xs font-medium">
-                    Files ({preview.files.length}){" "}
-                    <span className="text-emerald-600 dark:text-emerald-400">
-                      +{preview.additions}
-                    </span>{" "}
-                    <span className="text-destructive">−{preview.deletions}</span>
+                    Commits ({preview.commits.length}
+                    {preview.commitsTruncated ? "+, newest shown" : ""})
                   </h3>
-                  <ul className="max-h-40 overflow-y-auto rounded-md border text-xs">
-                    {preview.files.map((file) => (
-                      <li
-                        key={file.path}
-                        className="flex items-baseline gap-2 border-b px-2 py-1 last:border-b-0"
-                      >
-                        <span className="text-muted-foreground w-3 font-mono">{file.status}</span>
-                        <span className="min-w-0 flex-1 truncate font-mono">
-                          {file.hostRisk !== null ? (
-                            <TriangleAlertIcon
-                              className="mr-1 inline size-3 text-warning"
-                              aria-label="Acted on by host tools"
-                            />
-                          ) : null}
-                          {file.path}
-                        </span>
-                        {file.additions === null ? (
-                          <span className="text-muted-foreground">binary</span>
-                        ) : (
-                          <span className="shrink-0 font-mono">
-                            <span className="text-emerald-600 dark:text-emerald-400">
-                              +{file.additions}
-                            </span>{" "}
-                            <span className="text-destructive">−{file.deletions}</span>
+                  {preview.commits.length === 0 ? (
+                    <p className="text-muted-foreground text-sm">
+                      Nothing new: the remote branch already has this work.
+                    </p>
+                  ) : (
+                    <ol className="max-h-44 overflow-y-auto rounded-md border text-xs">
+                      {preview.commits.map((commit) => (
+                        <li
+                          key={commit.sha}
+                          className="flex items-baseline gap-2 border-b px-2 py-1 last:border-b-0"
+                        >
+                          <span className="text-muted-foreground font-mono">
+                            {commit.sha.slice(0, 8)}
                           </span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
+                          <span className="min-w-0 flex-1 truncate">{commit.subject}</span>
+                          <span className="text-muted-foreground shrink-0">
+                            {commit.authorName}
+                          </span>
+                          <span className="text-muted-foreground shrink-0">
+                            {formatDate(commit.authoredAt)}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
                 </section>
-              ) : null}
 
-              <section className="flex flex-col gap-2">
-                <h3 className="text-xs font-medium">Author of the pushed commits</h3>
-                <div className="flex flex-wrap gap-1">
-                  <Button
-                    size="xs"
-                    variant={authorMode === "host" ? "secondary" : "ghost-muted"}
-                    disabled={preview.hostIdentity === null}
-                    onClick={() => setAuthorMode("host")}
-                  >
-                    My git identity
-                  </Button>
-                  <Button
-                    size="xs"
-                    variant={authorMode === "custom" ? "secondary" : "ghost-muted"}
-                    onClick={() => setAuthorMode("custom")}
-                  >
-                    Custom
-                  </Button>
-                  <Button
-                    size="xs"
-                    variant={authorMode === "keep" ? "secondary" : "ghost-muted"}
-                    onClick={() => setAuthorMode("keep")}
-                  >
-                    Keep sandbox authors
-                  </Button>
-                </div>
-                {authorMode === "host" ? (
-                  <p className="text-muted-foreground text-xs">
-                    {preview.hostIdentity === null
-                      ? "The host project has no git user.name / user.email configured."
-                      : `${preview.hostIdentity.name} <${preview.hostIdentity.email}> — from the host checkout's git config.`}
-                  </p>
+                {preview.files.length > 0 ? (
+                  <section className="flex flex-col gap-1">
+                    <h3 className="text-xs font-medium">
+                      Files ({preview.files.length}){" "}
+                      <span className="text-success">+{preview.additions}</span>{" "}
+                      <span className="text-destructive">−{preview.deletions}</span>
+                    </h3>
+                    <ul className="max-h-40 overflow-y-auto rounded-md border text-xs">
+                      {preview.files.map((file) => (
+                        <li
+                          key={file.path}
+                          className="flex items-baseline gap-2 border-b px-2 py-1 last:border-b-0"
+                        >
+                          <span className="text-muted-foreground w-3 font-mono">{file.status}</span>
+                          <span className="min-w-0 flex-1 truncate font-mono">
+                            {file.hostRisk !== null ? (
+                              <TriangleAlertIcon
+                                className="mr-1 inline size-3 text-warning"
+                                aria-label="Acted on by host tools"
+                              />
+                            ) : null}
+                            {file.path}
+                          </span>
+                          {file.additions === null ? (
+                            <span className="text-muted-foreground">binary</span>
+                          ) : (
+                            <span className="shrink-0 font-mono">
+                              <span className="text-success">+{file.additions}</span>{" "}
+                              <span className="text-destructive">−{file.deletions}</span>
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
                 ) : null}
-                {authorMode === "custom" ? (
-                  <div className="flex flex-wrap gap-2">
-                    <Input
-                      className="min-w-40 flex-1"
-                      placeholder="Name"
-                      value={customName}
-                      onChange={(event) => setCustomName(event.target.value)}
-                    />
-                    <Input
-                      className="min-w-56 flex-1"
-                      placeholder="email@example.com"
-                      value={customEmail}
-                      aria-invalid={
-                        customEmail.length > 0 && !EMAIL_PATTERN.test(customEmail.trim())
-                      }
-                      onChange={(event) => setCustomEmail(event.target.value)}
-                    />
+
+                <section className="flex flex-col gap-2">
+                  <h3 className="text-xs font-medium">Author of the pushed commits</h3>
+                  <div className="flex flex-wrap gap-1">
+                    <Button
+                      size="xs"
+                      variant={authorMode === "host" ? "secondary" : "ghost-muted"}
+                      disabled={preview.hostIdentity === null}
+                      onClick={() => setAuthorMode("host")}
+                    >
+                      My git identity
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant={authorMode === "custom" ? "secondary" : "ghost-muted"}
+                      onClick={() => setAuthorMode("custom")}
+                    >
+                      Custom
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant={authorMode === "keep" ? "secondary" : "ghost-muted"}
+                      onClick={() => setAuthorMode("keep")}
+                    >
+                      Keep sandbox authors
+                    </Button>
                   </div>
-                ) : null}
-                {authorMode === "keep" ? (
-                  <p className="text-muted-foreground text-xs">
-                    Commits are pushed unchanged: {sandboxAuthors.join(", ") || "—"}.
-                  </p>
-                ) : (
-                  <label className="flex items-center gap-2 text-sm">
-                    <Checkbox
-                      checked={coAuthor}
-                      onCheckedChange={(checked) => setCoAuthor(checked === true)}
-                    />
-                    Credit the sandbox author with a Co-authored-by trailer
-                  </label>
-                )}
-              </section>
+                  {authorMode === "host" ? (
+                    <p className="text-muted-foreground text-xs">
+                      {preview.hostIdentity === null
+                        ? "The host project has no git user.name / user.email configured."
+                        : `${preview.hostIdentity.name} <${preview.hostIdentity.email}> — from the host checkout's git config.`}
+                    </p>
+                  ) : null}
+                  {authorMode === "custom" ? (
+                    <div className="flex flex-wrap gap-2">
+                      <Input
+                        className="min-w-40 flex-1"
+                        placeholder="Name"
+                        value={customName}
+                        onChange={(event) => setCustomName(event.target.value)}
+                      />
+                      <Input
+                        className="min-w-56 flex-1"
+                        placeholder="email@example.com"
+                        value={customEmail}
+                        aria-invalid={
+                          customEmail.length > 0 && !EMAIL_PATTERN.test(customEmail.trim())
+                        }
+                        onChange={(event) => setCustomEmail(event.target.value)}
+                      />
+                    </div>
+                  ) : null}
+                  {authorMode === "keep" ? (
+                    <p className="text-muted-foreground text-xs">
+                      Commits are pushed unchanged: {sandboxAuthors.join(", ") || "—"}.
+                    </p>
+                  ) : (
+                    <label className="flex items-center gap-2 text-sm">
+                      <Checkbox
+                        checked={coAuthor}
+                        onCheckedChange={(checked) => setCoAuthor(checked === true)}
+                      />
+                      Credit the sandbox author with a Co-authored-by trailer
+                    </label>
+                  )}
+                </section>
 
-              <section className="flex flex-col gap-2">
-                <h3 className="text-xs font-medium">Commits on the remote</h3>
-                <div className="flex flex-wrap gap-1">
-                  <Button
-                    size="xs"
-                    variant={!squash ? "secondary" : "ghost-muted"}
-                    onClick={() => setSquash(false)}
-                  >
-                    Keep individual commits ({preview.commits.length})
-                  </Button>
-                  <Button
-                    size="xs"
-                    variant={squash ? "secondary" : "ghost-muted"}
-                    onClick={() => setSquash(true)}
-                  >
-                    Squash into one commit
-                  </Button>
-                </div>
-                {squash ? (
-                  <Textarea
-                    rows={4}
-                    placeholder={`Leave empty for "Sandbox work from ${sandbox.name}" plus the commit subjects`}
-                    value={squashMessage}
-                    onChange={(event) => setSquashMessage(event.target.value)}
-                  />
-                ) : null}
-              </section>
-            </>
-          )}
+                <section className="flex flex-col gap-2">
+                  <h3 className="text-xs font-medium">Commits on the remote</h3>
+                  <div className="flex flex-wrap gap-1">
+                    <Button
+                      size="xs"
+                      variant={!squash ? "secondary" : "ghost-muted"}
+                      onClick={() => setSquash(false)}
+                    >
+                      Keep individual commits ({preview.commits.length})
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant={squash ? "secondary" : "ghost-muted"}
+                      onClick={() => setSquash(true)}
+                    >
+                      Squash into one commit
+                    </Button>
+                  </div>
+                  {squash ? (
+                    <Textarea
+                      rows={4}
+                      placeholder={`Leave empty for "Sandbox work from ${sandbox.name}" plus the commit subjects`}
+                      value={squashMessage}
+                      onChange={(event) => setSquashMessage(event.target.value)}
+                    />
+                  ) : null}
+                </section>
+              </>
+            )}
+          </div>
         </DialogPanel>
-        <DialogFooter className="flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+        <DialogFooter className="flex-col items-stretch sm:flex-row sm:items-center">
           <p className="text-muted-foreground min-w-0 flex-1 text-xs">
             {preview === null || nothingToPush
               ? "Nothing to push."
