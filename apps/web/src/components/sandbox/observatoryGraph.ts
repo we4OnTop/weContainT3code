@@ -184,3 +184,47 @@ export function buildObservatoryGraph(input: {
 
   return { nodes, links };
 }
+
+export interface NodePosition {
+  readonly x: number;
+  readonly y: number;
+}
+
+const COLUMN_X: Record<GraphNodeKind, number> = {
+  sandbox: -320,
+  proxy: 0,
+  receiver: 0,
+  remote: 320,
+};
+const ROW_GAP = 90;
+
+/**
+ * Fixed positions: sandboxes left, the receiver in the middle, remotes right,
+ * the proxy above the receiver. Nodes of a column are ordered by id, so the
+ * picture only changes when a node comes or goes, never on a refresh.
+ */
+export function layoutObservatoryGraph(graph: ObservatoryGraph): ReadonlyMap<string, NodePosition> {
+  const positions = new Map<string, NodePosition>();
+  const columns = new Map<GraphNodeKind, ObservatoryNode[]>();
+  for (const node of graph.nodes) {
+    const column = columns.get(node.kind) ?? [];
+    column.push(node);
+    columns.set(node.kind, column);
+  }
+  for (const [kind, nodes] of columns) {
+    const sorted = nodes.toSorted((a, b) => a.id.localeCompare(b.id));
+    sorted.forEach((node, index) => {
+      if (kind === "proxy" || kind === "receiver") {
+        // The receiver sits at the centre; proxies stack above it.
+        const y = kind === "receiver" ? index * ROW_GAP : -160 - index * ROW_GAP;
+        positions.set(node.id, { x: COLUMN_X[kind], y });
+        return;
+      }
+      positions.set(node.id, {
+        x: COLUMN_X[kind],
+        y: (index - (sorted.length - 1) / 2) * ROW_GAP,
+      });
+    });
+  }
+  return positions;
+}

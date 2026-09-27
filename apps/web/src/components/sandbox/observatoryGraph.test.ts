@@ -1,7 +1,12 @@
 import type { SandboxActivityEvent, SandboxInfo } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildObservatoryGraph, chartText } from "./observatoryGraph";
+import {
+  buildObservatoryGraph,
+  chartText,
+  layoutObservatoryGraph,
+  type ObservatoryGraph,
+} from "./observatoryGraph";
 
 const sandbox = (overrides: Partial<SandboxInfo> = {}) =>
   ({
@@ -106,5 +111,34 @@ describe("buildObservatoryGraph", () => {
       muted: true,
       name: "old-box",
     });
+  });
+});
+
+describe("layoutObservatoryGraph", () => {
+  const node = (id: string, kind: ObservatoryGraph["nodes"][number]["kind"]) => ({
+    id,
+    name: id,
+    kind,
+    details: [],
+    alert: false,
+    muted: false,
+  });
+
+  it("places columns by kind and does not depend on node order", () => {
+    const nodes = [
+      node("sb-b", "sandbox"),
+      node("receiver", "receiver"),
+      node("sb-a", "sandbox"),
+      node("origin", "remote"),
+      node("proxy", "proxy"),
+    ];
+    const first = layoutObservatoryGraph({ nodes, links: [] });
+    const second = layoutObservatoryGraph({ nodes: nodes.toReversed(), links: [] });
+    expect([...first.entries()].toSorted()).toEqual([...second.entries()].toSorted());
+    expect(first.get("receiver")).toEqual({ x: 0, y: 0 });
+    expect(first.get("sb-a")!.x).toBeLessThan(0);
+    expect(first.get("sb-a")!.y).toBeLessThan(first.get("sb-b")!.y);
+    expect(first.get("origin")!.x).toBeGreaterThan(0);
+    expect(first.get("proxy")!.y).toBeLessThan(0);
   });
 });

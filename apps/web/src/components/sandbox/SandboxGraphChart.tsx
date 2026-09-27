@@ -2,9 +2,13 @@ import { GraphChart, type GraphSeriesOption } from "echarts/charts";
 import { TooltipComponent, type TooltipComponentOption } from "echarts/components";
 import * as echarts from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
-import type { GraphNodeKind, ObservatoryGraph } from "./observatoryGraph";
+import {
+  layoutObservatoryGraph,
+  type GraphNodeKind,
+  type ObservatoryGraph,
+} from "./observatoryGraph";
 
 // Only the modules the observatory draws; no wrapper library in between.
 echarts.use([GraphChart, TooltipComponent, CanvasRenderer]);
@@ -33,7 +37,10 @@ interface TooltipData {
 
 function buildOption(graph: ObservatoryGraph, dark: boolean): ChartOption {
   const text = dark ? "#e5e7eb" : "#1f2937";
+  const positions = layoutObservatoryGraph(graph);
   return {
+    // Updates redraw in place; nothing floats or slides.
+    animation: false,
     tooltip: {
       // Canvas-rendered tooltips: nothing from a sandbox is ever parsed as HTML.
       renderMode: "richText",
@@ -46,10 +53,8 @@ function buildOption(graph: ObservatoryGraph, dark: boolean): ChartOption {
     series: [
       {
         type: "graph",
-        layout: "force",
+        layout: "none",
         roam: true,
-        draggable: true,
-        force: { repulsion: 420, edgeLength: [90, 170], gravity: 0.08 },
         label: { show: true, position: "bottom", color: text, formatter: "{b}" },
         edgeLabel: { show: true, color: text, fontSize: 10 },
         edgeSymbol: ["none", "arrow"],
@@ -57,6 +62,8 @@ function buildOption(graph: ObservatoryGraph, dark: boolean): ChartOption {
         data: graph.nodes.map((node) => ({
           id: node.id,
           name: node.name,
+          x: positions.get(node.id)?.x ?? 0,
+          y: positions.get(node.id)?.y ?? 0,
           symbolSize: KIND_SIZE[node.kind],
           itemStyle: {
             color: node.muted ? MUTED_COLOR : KIND_COLOR[node.kind],
@@ -102,10 +109,14 @@ export function SandboxGraphChart({ graph }: { readonly graph: ObservatoryGraph 
     };
   }, []);
 
+  // A refresh builds a new graph object every few seconds even when nothing
+  // changed; redraw only when the content did. Merging (not replacing) keeps
+  // the zoom and pan.
+  const signature = useMemo(() => JSON.stringify(graph), [graph]);
   useEffect(() => {
     const dark = document.documentElement.classList.contains("dark");
-    chartRef.current?.setOption(buildOption(graph, dark), { notMerge: true });
-  }, [graph]);
+    chartRef.current?.setOption(buildOption(JSON.parse(signature) as ObservatoryGraph, dark));
+  }, [signature]);
 
   return <div ref={containerRef} className="h-[420px] w-full rounded-md border" />;
 }

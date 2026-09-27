@@ -111,6 +111,10 @@ export function SandboxesMenu() {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"sandboxes" | "templates">("sandboxes");
   const [observatoryOpen, setObservatoryOpen] = useState(false);
+  // Opening a dialog in the same click that closes the sheet lets that click
+  // count as an outside press and close the dialog again; open it once the
+  // sheet has finished closing.
+  const [observatoryQueued, setObservatoryQueued] = useState(false);
 
   const sandboxEnvironments = environments.filter(
     (environment) => environment.serverConfig?.environment.capabilities.sandboxes === true,
@@ -131,7 +135,16 @@ export function SandboxesMenu() {
 
   return (
     <>
-      <Sheet open={open} onOpenChange={setOpen}>
+      <Sheet
+        open={open}
+        onOpenChange={setOpen}
+        onOpenChangeComplete={(isOpen) => {
+          if (!isOpen && observatoryQueued) {
+            setObservatoryQueued(false);
+            setObservatoryOpen(true);
+          }
+        }}
+      >
         <Tooltip>
           <TooltipTrigger
             render={
@@ -158,8 +171,8 @@ export function SandboxesMenu() {
               size="sm"
               variant="ghost-muted"
               onClick={() => {
+                setObservatoryQueued(true);
                 setOpen(false);
-                setObservatoryOpen(true);
               }}
             >
               Observatory

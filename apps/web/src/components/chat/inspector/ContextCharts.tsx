@@ -79,8 +79,11 @@ function EChart({
   build,
   height,
   label,
+  signature,
 }: {
   readonly build: (dark: boolean) => ChartOption;
+  /** Changes only when the charted data does; polling alone never redraws. */
+  readonly signature: string;
   readonly height: number;
   readonly label: string;
 }) {
@@ -101,14 +104,21 @@ function EChart({
     };
   }, []);
 
+  const buildRef = useRef(build);
   useEffect(() => {
-    const apply = () => chartRef.current?.setOption(build(isDark()), { notMerge: true });
+    buildRef.current = build;
+  });
+
+  useEffect(() => {
+    // Replacing only the series keeps the zoom window where the user left it.
+    const apply = () =>
+      chartRef.current?.setOption(buildRef.current(isDark()), { replaceMerge: ["series"] });
     apply();
     // Follow the app's theme toggle.
     const observer = new MutationObserver(apply);
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     return () => observer.disconnect();
-  }, [build]);
+  }, [signature]);
 
   return (
     <div ref={containerRef} role="img" aria-label={label} className="w-full" style={{ height }} />
@@ -238,6 +248,7 @@ export function ContextSizeChart({
   return (
     <EChart
       build={build}
+      signature={JSON.stringify([usage, compactions])}
       height={260}
       label="Reported context size over time, with compactions marked"
     />
@@ -327,6 +338,11 @@ export function ContextGrowthChart({ turns }: { readonly turns: ReadonlyArray<Tu
     };
   };
   return (
-    <EChart build={build} height={280} label="Estimated tokens added per turn, stacked by source" />
+    <EChart
+      build={build}
+      signature={JSON.stringify(turns.map((turn) => [turn.turnId, turn.added, turn.usedTokens]))}
+      height={280}
+      label="Estimated tokens added per turn, stacked by source"
+    />
   );
 }
