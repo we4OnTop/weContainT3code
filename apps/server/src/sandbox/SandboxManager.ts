@@ -88,6 +88,12 @@ import {
 
 const GUEST_T3_PORT = 3773;
 const GUEST_SBX_GIT_PORT = 9418;
+/**
+ * Project folder names the guest git daemon can serve. The name is passed to
+ * the guest as an argument; this only keeps out what a git:// path or the
+ * daemon's export check would reject (and "." / "..").
+ */
+export const PROJECT_FOLDER_PATTERN = /^(?!\.{1,2}$)[A-Za-z0-9._][A-Za-z0-9._ -]{0,254}$/;
 const HOST_PORT_RANGE_START = 3774;
 const HOST_PORT_RANGE_END = 3799;
 const SANDBOXES_STATE_FILE = "sandboxes.json";
@@ -1804,7 +1810,17 @@ export const make = Effect.fn("SandboxManager.make")(function* () {
         yield* ensureReceiver();
         yield* emit("receiver", "done");
 
-        const repoName = sanitizeRepoName(path.basename(input.projectCwd));
+        // The daemon exports the parent directory, so the repository path is
+        // the project's folder name exactly as on disk: case matters inside
+        // the Linux guest ("weContain" is not "wecontain").
+        const projectFolder = path.basename(input.projectCwd);
+        if (!PROJECT_FOLDER_PATTERN.test(projectFolder)) {
+          return yield* commandError(
+            "create",
+            `the project folder name "${projectFolder}" cannot be served to the sandbox; use letters, digits, spaces, ".", "_" or "-"`,
+          );
+        }
+        const repoName = sanitizeRepoName(projectFolder);
         const sandboxId = existing?.sandboxId ?? generateSandboxId();
         const name =
           existing?.name ?? `t3-${repoName.slice(0, 24)}-${sandboxId.slice(-8)}`.toLowerCase();
@@ -1877,7 +1893,12 @@ export const make = Effect.fn("SandboxManager.make")(function* () {
               "-c",
               // A clone that died half way leaves a directory without a
               // usable .git behind, which would fail every later attempt.
-              `test -d ${guestWorkdir}/.git || { rm -rf ${guestWorkdir}; git clone git://127.0.0.1:${GUEST_SBX_GIT_PORT}/${repoName} ${guestWorkdir}; }`,
+              // Folder and target arrive as arguments, never as shell text.
+              'test -d "$2/.git" || { rm -rf "$2"; git clone "git://127.0.0.1:$1/$3" "$2"; }',
+              "sh",
+              String(GUEST_SBX_GIT_PORT),
+              guestWorkdir,
+              projectFolder,
             ],
             "create",
             "5 minutes",

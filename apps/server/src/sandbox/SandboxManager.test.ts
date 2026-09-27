@@ -2,6 +2,7 @@ import { expect, it } from "@effect/vitest";
 import { ProjectId, ThreadId, type SandboxInfo } from "@t3tools/contracts";
 
 import {
+  PROJECT_FOLDER_PATTERN,
   buildFailureRecord,
   migrateLegacyRecords,
   pickPairingUrl,
@@ -158,4 +159,13 @@ it("accepts only a pairing link to the sandbox's own loopback port", () => {
   expect(
     pickPairingUrl("see http://evil.example/x then http://127.0.0.1:3774/pair#token=Z", 3774),
   ).toBe("http://127.0.0.1:3774/pair#token=Z");
+});
+
+it("serves project folders by their real name, case included", () => {
+  for (const ok of ["weContain", "t3code", "my project", "repo.v2", "a", "_x", ".dotted"]) {
+    expect(PROJECT_FOLDER_PATTERN.test(ok), ok).toBe(true);
+  }
+  for (const bad of ["", ".", "..", "-rf", "a/b", "a\b", "a;b", "$(x)", "a\nb", "ä"]) {
+    expect(PROJECT_FOLDER_PATTERN.test(bad), JSON.stringify(bad)).toBe(false);
+  }
 });
