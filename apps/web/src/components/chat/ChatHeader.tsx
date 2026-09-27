@@ -34,6 +34,7 @@ import ProjectScriptsControl, {
 } from "../ProjectScriptsControl";
 import { OpenInPicker } from "./OpenInPicker";
 import SandboxControl, { SandboxEnvironmentControl } from "./SandboxControl";
+import { ChatInspectorButton } from "./inspector/ChatInspector";
 import { useRemoteOpenState, type RemoteOpenMode } from "../../remoteOpen";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useT3ProjectFileScripts } from "~/hooks/useT3ProjectFileScripts";
@@ -499,6 +500,12 @@ export const ChatHeader = memo(function ChatHeader({
           "[[data-panel-animations=true]_&]:motion-safe:transition-[padding-right] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out",
         )}
       >
+        {isServerThread ? (
+          <ChatInspectorButton
+            environmentId={activeThreadEnvironmentId}
+            threadId={activeThreadId}
+          />
+        ) : null}
         <SandboxEnvironmentControl environmentId={activeThreadEnvironmentId} />
         {activeProjectName && activeProjectCwd ? (
           <SandboxControl

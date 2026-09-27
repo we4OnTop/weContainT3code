@@ -92,6 +92,7 @@ import * as ServerConfig from "./config.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as SandboxManager from "./sandbox/SandboxManager.ts";
+import * as ThreadInspector from "./orchestration/ThreadInspector.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import {
   projectActivityEvent,
@@ -561,6 +562,7 @@ const makeWsRpcLayer = (
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
       const terminalManager = yield* TerminalManager.TerminalManager;
       const sandboxManager = yield* SandboxManager.SandboxManager;
+      const threadInspector = yield* ThreadInspector.ThreadInspector;
       const previewManager = yield* PreviewManager.PreviewManager;
       const deviceService = yield* DeviceService.DeviceService;
       const deviceHostContext =
@@ -3556,6 +3558,10 @@ const makeWsRpcLayer = (
         [WS_METHODS.sandboxPolicyAddRule]: (input) =>
           observeRpcEffect(WS_METHODS.sandboxPolicyAddRule, sandboxManager.policyAddRule(input), {
             "rpc.aggregate": "sandbox",
+          }),
+        [WS_METHODS.threadInspect]: (input) =>
+          observeRpcEffect(WS_METHODS.threadInspect, threadInspector.inspect(input), {
+            "rpc.aggregate": "orchestration",
           }),
         [WS_METHODS.sandboxActivity]: (input) =>
           observeRpcEffect(WS_METHODS.sandboxActivity, sandboxManager.activity(input), {

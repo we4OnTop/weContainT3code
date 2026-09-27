@@ -152,6 +152,7 @@ import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
 import * as ServerSettings from "./serverSettings.ts";
 import * as SandboxManager from "./sandbox/SandboxManager.ts";
+import * as ThreadInspector from "./orchestration/ThreadInspector.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
@@ -955,6 +956,7 @@ const buildAppUnderTest = (options?: {
             ...options?.layers?.terminalManager,
           }),
           Layer.mock(SandboxManager.SandboxManager)({}),
+          Layer.mock(ThreadInspector.ThreadInspector)({}),
           WorktreeSetupTracker.layer,
           ProjectCloneTracker.layer.pipe(
             Layer.provide(

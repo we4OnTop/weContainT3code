@@ -195,6 +195,10 @@
       "types": "./src/state/sandbox.ts",
       "default": "./src/state/sandbox.ts"
     },
+    "./state/threadInspection": {
+      "types": "./src/state/threadInspection.ts",
+      "default": "./src/state/threadInspection.ts"
+    },
     "./state/usage": {
       "types": "./src/state/usage.ts",
       "default": "./src/state/usage.ts"

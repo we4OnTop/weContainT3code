@@ -75,6 +75,7 @@ import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as SandboxManager from "./sandbox/SandboxManager.ts";
+import * as ThreadInspector from "./orchestration/ThreadInspector.ts";
 import * as DeviceService from "./device/DeviceService.ts";
 import { deviceHubProxyRouteLayer } from "./device/DeviceHubProxy.ts";
 import * as PreviewManager from "./preview/Manager.ts";
@@ -519,7 +520,13 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(VcsLayerLive),
   Layer.provideMerge(ProviderRuntimeLayerLive),
   Layer.provideMerge(
-    Layer.mergeAll(TerminalLayerLive, PreviewLayerLive, SandboxManager.layer, DeviceLayerLive),
+    Layer.mergeAll(
+      TerminalLayerLive,
+      PreviewLayerLive,
+      SandboxManager.layer,
+      ThreadInspector.layer,
+      DeviceLayerLive,
+    ),
   ),
   Layer.provideMerge(PersistenceLayerLive),
   // Both read a user-owned file out of the state directory and stream changes

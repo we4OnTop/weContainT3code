@@ -101,6 +101,7 @@ import {
   OrchestrationRpcSchemas,
   OrchestrationGetWorkflowScriptError,
 } from "./orchestration.ts";
+import { ThreadInspectError, ThreadInspectInput, ThreadInspectResult } from "./threadInspection.ts";
 import {
   ProviderUploadFeedbackError,
   ProviderUploadFeedbackInput,
@@ -423,6 +424,7 @@ export const WS_METHODS = {
   sandboxPolicyAddRule: "sandbox.policy.addRule",
   sandboxPolicyRemoveRule: "sandbox.policy.removeRule",
   sandboxActivity: "sandbox.activity",
+  threadInspect: "thread.inspect",
 
   // Server meta
   serverProbe: "server.probe",
@@ -868,6 +870,12 @@ export const WsSandboxPolicyRemoveRuleRpc = Rpc.make(WS_METHODS.sandboxPolicyRem
   payload: SandboxPolicyRemoveRuleInput,
   success: SandboxNetworkOverviewResult,
   error: Schema.Union([SandboxError, EnvironmentAuthorizationError]),
+});
+
+export const WsThreadInspectRpc = Rpc.make(WS_METHODS.threadInspect, {
+  payload: ThreadInspectInput,
+  success: ThreadInspectResult,
+  error: Schema.Union([ThreadInspectError, EnvironmentAuthorizationError]),
 });
 
 export const WsSandboxActivityRpc = Rpc.make(WS_METHODS.sandboxActivity, {
@@ -1737,6 +1745,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsSandboxPolicyAddRuleRpc,
   WsSandboxPolicyRemoveRuleRpc,
   WsSandboxActivityRpc,
+  WsThreadInspectRpc,
   WsSubscribeDiscoveredLocalServersRpc,
   WsDeviceConfigureRpc,
   WsDeviceListRpc,

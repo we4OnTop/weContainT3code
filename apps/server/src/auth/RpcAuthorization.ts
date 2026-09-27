@@ -179,6 +179,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.sandboxPolicyAddRule]: AuthOrchestrationOperateScope,
   [WS_METHODS.sandboxPolicyRemoveRule]: AuthOrchestrationOperateScope,
   [WS_METHODS.sandboxActivity]: AuthOrchestrationReadScope,
+  [WS_METHODS.threadInspect]: AuthOrchestrationReadScope,
   [WS_METHODS.subscribeDiscoveredLocalServers]: AuthOrchestrationReadScope,
   [WS_METHODS.deviceConfigure]: AuthOrchestrationOperateScope,
   [WS_METHODS.deviceTestHost]: AuthOrchestrationOperateScope,
