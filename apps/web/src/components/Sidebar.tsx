@@ -2564,8 +2564,8 @@ export default function Sidebar() {
     draggableThreadKeys,
     activeReorderableThreadKeys,
     activeThreads: allActiveThreads,
-    snoozedThreads,
-    settledThreads,
+    snoozedThreads: allSnoozedThreads,
+    settledThreads: allSettledThreads,
     snoozeNow,
   } = useMemo(() => {
     // Snooze classification uses a REAL clock, not the quantized minute:
@@ -2669,9 +2669,16 @@ export default function Sidebar() {
   // under their sandbox, named after the project. Pinned, snoozed and settled
   // chats stay where the user put them.
   const hostSandboxes = useHostSandboxesByEnvironmentId();
-  const { hostThreads: activeThreads, groups: sandboxThreadGroups } = useMemo(
-    () => splitSandboxThreads(allActiveThreads, hostSandboxes),
-    [allActiveThreads, hostSandboxes],
+  const {
+    remaining: { active: activeThreads, snoozed: snoozedThreads, settled: settledThreads },
+    groups: sandboxThreadGroups,
+  } = useMemo(
+    () =>
+      splitSandboxThreads(
+        { active: allActiveThreads, snoozed: allSnoozedThreads, settled: allSettledThreads },
+        hostSandboxes,
+      ),
+    [allActiveThreads, allSettledThreads, allSnoozedThreads, hostSandboxes],
   );
   const [collapsedSandboxIds, setCollapsedSandboxIds] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -2687,7 +2694,9 @@ export default function Sidebar() {
   const sandboxGroupThreads = useMemo(
     () =>
       sandboxThreadGroups.flatMap((group) =>
-        collapsedSandboxIds.has(group.sandbox.sandboxId) ? [] : group.threads,
+        collapsedSandboxIds.has(group.sandbox.sandboxId)
+          ? []
+          : group.threads.map((entry) => entry.thread),
       ),
     [collapsedSandboxIds, sandboxThreadGroups],
   );
@@ -2697,8 +2706,8 @@ export default function Sidebar() {
   const [activeSearchResultIndex, setActiveSearchResultIndex] = useState(0);
   const isSearchingThreads = threadSearchQuery.trim().length > 0;
   const searchableThreads = useMemo(
-    () => [...pinnedThreads, ...allActiveThreads, ...snoozedThreads, ...settledThreads],
-    [allActiveThreads, pinnedThreads, settledThreads, snoozedThreads],
+    () => [...pinnedThreads, ...allActiveThreads, ...allSnoozedThreads, ...allSettledThreads],
+    [allActiveThreads, allSettledThreads, allSnoozedThreads, pinnedThreads],
   );
   const searchEnvironmentIds = useMemo(
     () =>
@@ -4931,13 +4940,13 @@ export default function Sidebar() {
                                       )
                               }
                             >
-                              {group.threads.map((thread) => (
+                              {group.threads.map(({ thread, section }) => (
                                 <Fragment
                                   key={scopedThreadKey(
                                     scopeThreadRef(thread.environmentId, thread.id),
                                   )}
                                 >
-                                  {renderThreadRowInner(thread, "active")}
+                                  {renderThreadRowInner(thread, section)}
                                 </Fragment>
                               ))}
                             </SandboxThreadGroup>,

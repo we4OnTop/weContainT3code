@@ -2,6 +2,8 @@ import type { ThreadInspectActivity, ThreadInspectResult } from "@t3tools/contra
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  buildAgentTimeline,
+  contextAt,
   formatTokenCount,
   inspectThread,
   prettyPayload,
@@ -222,3 +224,64 @@ function usagePoint(at: string, fields: Partial<UsagePoint>): UsagePoint {
     ...fields,
   };
 }
+
+describe("buildAgentTimeline", () => {
+  it("puts subagents in their own rows and each tool call in the row of its agent", () => {
+    const inspection = inspectThread(
+      base([
+        activity(
+          "tool.completed",
+          { itemType: "command_execution", toolCallId: "main-1", title: "bash" },
+          "2026-09-27T10:00:01.000Z",
+        ),
+        activity(
+          "task.started",
+          {
+            taskId: "k1",
+            taskType: "Explore",
+            agentId: "ag1",
+            title: "Map the repo",
+            model: "haiku",
+          },
+          "2026-09-27T10:00:02.000Z",
+        ),
+        activity(
+          "tool.completed",
+          { itemType: "mcp_tool_call", toolCallId: "sub-1", title: "grep", agentId: "ag1" },
+          "2026-09-27T10:00:03.000Z",
+        ),
+        activity(
+          "task.completed",
+          { taskId: "k1", status: "completed", summary: "12 packages" },
+          "2026-09-27T10:00:09.000Z",
+        ),
+      ]),
+    );
+    const timeline = buildAgentTimeline(
+      inspection,
+      { label: "Main agent", detail: "Claude Code" },
+      Date.parse("2026-09-27T10:01:00.000Z"),
+    );
+    expect(timeline.rows.map((row) => [row.label, row.detail])).toEqual([
+      ["Main agent", "Claude Code"],
+      ["Map the repo", "Explore · haiku"],
+    ]);
+    const byId = new Map(timeline.items.map((item) => [item.id, item]));
+    expect(byId.get("main-1")?.rowIndex).toBe(0);
+    expect(byId.get("sub-1")?.rowIndex).toBe(1);
+    expect(byId.get("k1")).toMatchObject({ kind: "subagent", rowIndex: 1, detail: "12 packages" });
+    expect(byId.get("k1")!.endMs - byId.get("k1")!.startMs).toBe(7000);
+  });
+});
+
+describe("contextAt", () => {
+  it("reads the last snapshot at or before the instant", () => {
+    const usage = [
+      usagePoint("2026-09-27T10:00:00.000Z", { usedTokens: 100 }),
+      usagePoint("2026-09-27T10:05:00.000Z", { usedTokens: 900 }),
+    ];
+    expect(contextAt(usage, Date.parse("2026-09-27T09:59:00.000Z"))).toBeNull();
+    expect(contextAt(usage, Date.parse("2026-09-27T10:03:00.000Z"))).toBe(100);
+    expect(contextAt(usage, Date.parse("2026-09-27T10:06:00.000Z"))).toBe(900);
+  });
+});

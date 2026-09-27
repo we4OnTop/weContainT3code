@@ -1,4 +1,13 @@
-import { BarChart, LineChart, type BarSeriesOption, type LineSeriesOption } from "echarts/charts";
+import {
+  BarChart,
+  CustomChart,
+  LineChart,
+  ScatterChart,
+  type BarSeriesOption,
+  type CustomSeriesOption,
+  type LineSeriesOption,
+  type ScatterSeriesOption,
+} from "echarts/charts";
 import {
   DataZoomComponent,
   GridComponent,
@@ -15,13 +24,17 @@ import * as echarts from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 import { useEffect, useRef } from "react";
 
+import { chartText } from "../../sandbox/observatoryGraph";
 import {
   INPUT_CATEGORIES,
   INPUT_CATEGORY_LABEL,
+  contextAt,
   formatTokenCount,
+  type AgentTimeline,
   type Compaction,
   type InputCategory,
   type ProcessedPoint,
+  type ToolCall,
   type TurnSummary,
   type UsagePoint,
 } from "./threadInspection";
@@ -29,6 +42,8 @@ import {
 echarts.use([
   LineChart,
   BarChart,
+  ScatterChart,
+  CustomChart,
   GridComponent,
   LegendComponent,
   TooltipComponent,
@@ -40,6 +55,8 @@ echarts.use([
 type ChartOption = echarts.ComposeOption<
   | LineSeriesOption
   | BarSeriesOption
+  | ScatterSeriesOption
+  | CustomSeriesOption
   | GridComponentOption
   | LegendComponentOption
   | TooltipComponentOption
@@ -81,8 +98,13 @@ function EChart({
   height,
   label,
   signature,
+  group,
+  onItemClick,
 }: {
   readonly build: (dark: boolean) => ChartOption;
+  /** Charts in one group share hover and zoom along the time axis. */
+  readonly group?: string;
+  readonly onItemClick?: (params: { readonly seriesId?: string; readonly data?: unknown }) => void;
   /** Changes only when the charted data does; polling alone never redraws. */
   readonly signature: string;
   readonly height: number;
@@ -96,6 +118,11 @@ function EChart({
     if (container === null) return;
     const chart = echarts.init(container, undefined, { renderer: "canvas" });
     chartRef.current = chart;
+    if (group !== undefined) {
+      chart.group = group;
+      echarts.connect(group);
+    }
+    chart.on("click", (params) => clickRef.current?.(params as never));
     const observer = new ResizeObserver(() => chart.resize());
     observer.observe(container);
     return () => {
@@ -103,11 +130,13 @@ function EChart({
       chart.dispose();
       chartRef.current = null;
     };
-  }, []);
+  }, [group]);
 
   const buildRef = useRef(build);
+  const clickRef = useRef(onItemClick);
   useEffect(() => {
     buildRef.current = build;
+    clickRef.current = onItemClick;
   });
 
   useEffect(() => {
@@ -142,10 +171,23 @@ function axisStyle(ink: Ink) {
 export function ContextSizeChart({
   usage,
   compactions,
+  toolCalls = [],
+  selectedToolId = null,
+  onSelectTool,
+  group,
+  range,
 }: {
   readonly usage: ReadonlyArray<UsagePoint>;
   readonly compactions: ReadonlyArray<Compaction>;
+  /** Drawn on the curve at the context size they ran at. */
+  readonly toolCalls?: ReadonlyArray<ToolCall>;
+  readonly selectedToolId?: string | null;
+  readonly onSelectTool?: (toolCallId: string) => void;
+  readonly group?: string;
+  /** Pins the time axis, so linked charts line up. */
+  readonly range?: { readonly startMs: number; readonly endMs: number };
 }) {
+  const selectedCall = toolCalls.find((call) => call.id === selectedToolId) ?? null;
   const build = (dark: boolean): ChartOption => {
     const ink = inkFor(dark);
     const color = dark ? "#3987e5" : "#2a78d6";
@@ -184,7 +226,12 @@ export function ContextSizeChart({
           return lines.join("\n");
         },
       },
-      xAxis: { type: "time", ...axisStyle(ink), splitLine: { show: false } },
+      xAxis: {
+        type: "time",
+        ...axisStyle(ink),
+        splitLine: { show: false },
+        ...(range ? { min: range.startMs, max: range.endMs } : {}),
+      },
       yAxis: {
         type: "value",
         ...axisStyle(ink),
@@ -240,16 +287,78 @@ export function ContextSizeChart({
                 xAxis: Date.parse(compaction.at),
                 label: { formatter: "compacted", position: "insideEndTop" as const },
               })),
+              ...(selectedCall
+                ? [
+                    {
+                      xAxis: Date.parse(selectedCall.startedAt),
+                      label: { formatter: "selected", position: "insideEndTop" as const },
+                      lineStyle: { color: ink.primary, type: "solid" as const, width: 1 },
+                    },
+                  ]
+                : []),
             ],
           },
         },
+        ...(toolCalls.length > 0
+          ? [
+              {
+                type: "scatter" as const,
+                id: "tool-calls",
+                name: "Tool calls",
+                // Where each call happened on the context curve; bigger dots
+                // brought more text back into the context.
+                symbolSize: (value: [number, number, string, number]) =>
+                  Math.min(6 + Math.log2(1 + value[3] / 400) * 2, 18),
+                itemStyle: {
+                  color: dark ? "#d55181" : "#e87ba4",
+                  borderColor: ink.surface,
+                  borderWidth: 1,
+                },
+                emphasis: { scale: 1.4 },
+                tooltip: {
+                  trigger: "item" as const,
+                  formatter: (params: { data?: unknown }) => {
+                    const call = toolCalls.find(
+                      (entry) => entry.id === (params.data as [number, number, string])?.[2],
+                    );
+                    if (!call) return "";
+                    return [
+                      chartText(call.title, 80),
+                      ...(call.detail ? [chartText(call.detail, 100)] : []),
+                      `${clock(Date.parse(call.startedAt))} · ${call.status}`,
+                      `Context then: ${formatTokenCount(contextAt(usage, Date.parse(call.startedAt)) ?? 0)}`,
+                      `Brought back: ~${formatTokenCount(Math.ceil(call.outputChars / 4))} tokens`,
+                      "Click for the raw call",
+                    ].join("\n");
+                  },
+                },
+                data: toolCalls.map((call) => {
+                  const at = Date.parse(call.startedAt);
+                  return [at, contextAt(usage, at) ?? 0, call.id, call.outputChars];
+                }),
+              },
+            ]
+          : []),
       ],
     };
   };
   return (
     <EChart
       build={build}
-      signature={JSON.stringify([usage, compactions])}
+      signature={JSON.stringify([
+        usage,
+        compactions,
+        toolCalls.length,
+        toolCalls.at(-1)?.status,
+        selectedToolId,
+        range,
+      ])}
+      {...(group === undefined ? {} : { group })}
+      onItemClick={(params) => {
+        if (params.seriesId !== "tool-calls") return;
+        const id = (params.data as [number, number, string] | undefined)?.[2];
+        if (id !== undefined) onSelectTool?.(id);
+      }}
       height={260}
       label="Reported context size over time, with compactions marked"
     />
@@ -409,6 +518,157 @@ export function ProcessedTokensChart({
       signature={JSON.stringify(processed.at(-1) ?? null) + processed.length}
       height={200}
       label="Tokens processed for this chat over time"
+    />
+  );
+}
+
+const GANTT_ROW_HEIGHT = 28;
+
+/**
+ * Who worked when: the main agent and every subagent in its own row, each
+ * subagent as a span, every tool call as a thin span in the row of the agent
+ * that made it. Shares its time axis with the context chart through `group`.
+ */
+export function AgentGanttChart({
+  timeline,
+  selectedId = null,
+  onSelect,
+  group,
+}: {
+  readonly timeline: AgentTimeline;
+  readonly selectedId?: string | null;
+  readonly onSelect?: (item: { readonly kind: "subagent" | "tool"; readonly id: string }) => void;
+  readonly group?: string;
+}) {
+  const build = (dark: boolean): ChartOption => {
+    const ink = inkFor(dark);
+    const subagentColor = dark ? "#199e70" : "#1baf7a";
+    const toolColor = dark ? "#3987e5" : "#2a78d6";
+    const failedColor = dark ? "#e66767" : "#e34948";
+    const rowLabels = timeline.rows.map((row) => chartText(row.label, 28));
+    return {
+      animation: false,
+      grid: { left: 140, right: 16, top: 8, bottom: 44 },
+      tooltip: {
+        trigger: "item",
+        renderMode: "richText",
+        formatter: (params) => {
+          const entry = Array.isArray(params) ? params[0] : params;
+          const item = timeline.items[(entry?.value as number[] | undefined)?.[3] ?? -1];
+          if (!item) return "";
+          const row = timeline.rows[item.rowIndex];
+          const seconds = (item.endMs - item.startMs) / 1000;
+          return [
+            chartText(item.name, 80),
+            item.kind === "subagent" ? "Subagent" : "Tool call",
+            `by ${chartText(row?.label ?? "", 60)}${row?.detail ? ` (${chartText(row.detail, 60)})` : ""}`,
+            `${clock(item.startMs)} · ${seconds < 60 ? `${seconds.toFixed(1)}s` : `${(seconds / 60).toFixed(1)}min`}${item.running ? " so far" : ""}`,
+            ...(item.failed ? ["Failed"] : []),
+            ...(item.detail ? [chartText(item.detail, 160)] : []),
+          ].join("\n");
+        },
+      },
+      xAxis: {
+        type: "time",
+        ...axisStyle(ink),
+        splitLine: { show: false },
+        min: timeline.startMs,
+        max: timeline.endMs,
+      },
+      yAxis: {
+        type: "category",
+        inverse: true,
+        data: rowLabels,
+        ...axisStyle(ink),
+        splitLine: { show: true, lineStyle: { color: ink.grid, width: 1 } },
+        axisLabel: { color: ink.secondary, fontSize: 11, width: 128, overflow: "truncate" },
+      },
+      dataZoom: [
+        { type: "inside", filterMode: "weakFilter" },
+        {
+          type: "slider",
+          filterMode: "weakFilter",
+          height: 18,
+          bottom: 8,
+          borderColor: ink.grid,
+          textStyle: { color: ink.secondary },
+        },
+      ],
+      series: [
+        {
+          type: "custom",
+          id: "agents",
+          encode: { x: [1, 2], y: 0 },
+          renderItem: (params, api) => {
+            const index = api.value(3) as number;
+            const item = timeline.items[index];
+            if (!item) return null;
+            const start = api.coord([api.value(1), api.value(0)]);
+            const end = api.coord([api.value(2), api.value(0)]);
+            const band = (api.size?.([0, 1]) as number[] | undefined)?.[1] ?? GANTT_ROW_HEIGHT;
+            const height = band * (item.kind === "subagent" ? 0.62 : 0.28);
+            const coordSys = params.coordSys as unknown as {
+              x: number;
+              y: number;
+              width: number;
+              height: number;
+            };
+            const shape = echarts.graphic.clipRectByRect(
+              {
+                x: start[0]!,
+                y: start[1]! - height / 2,
+                width: Math.max(end[0]! - start[0]!, 3),
+                height,
+              },
+              coordSys,
+            );
+            if (!shape) return null;
+            const selected = item.id === selectedId;
+            return {
+              type: "rect",
+              shape: { ...shape, r: item.kind === "subagent" ? 3 : 1 },
+              style: {
+                fill: item.failed
+                  ? failedColor
+                  : item.kind === "subagent"
+                    ? subagentColor
+                    : toolColor,
+                opacity: item.kind === "subagent" ? 0.45 : item.running ? 0.6 : 0.95,
+                stroke: selected ? ink.primary : ink.surface,
+                lineWidth: selected ? 2 : 1,
+              },
+            };
+          },
+          data: timeline.items.map((item, index) => [
+            item.rowIndex,
+            item.startMs,
+            item.endMs,
+            index,
+          ]),
+        },
+      ],
+    };
+  };
+  const height = Math.max(120, timeline.rows.length * GANTT_ROW_HEIGHT + 60);
+  return (
+    <EChart
+      build={build}
+      signature={JSON.stringify([
+        timeline.rows,
+        timeline.items.length,
+        timeline.items.at(-1),
+        timeline.startMs,
+        timeline.endMs,
+        selectedId,
+      ])}
+      {...(group === undefined ? {} : { group })}
+      onItemClick={(params) => {
+        const index = (params.data as number[] | undefined)?.[3];
+        const item = index === undefined ? undefined : timeline.items[index];
+        if (item) onSelect?.({ kind: item.kind, id: item.id });
+      }}
+      height={height}
+      label="Timeline of the main agent, subagents and their tool calls"
     />
   );
 }

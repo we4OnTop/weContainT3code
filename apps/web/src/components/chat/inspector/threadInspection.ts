@@ -683,3 +683,107 @@ export function tokensBetween(
   }
   return total;
 }
+
+/** The reported context size at an instant: the last snapshot at or before it. */
+export function contextAt(usage: ReadonlyArray<UsagePoint>, ms: number): number | null {
+  let value: number | null = null;
+  for (const point of usage) {
+    if (Date.parse(point.at) > ms) break;
+    value = point.usedTokens;
+  }
+  return value;
+}
+
+export interface AgentTimelineRow {
+  readonly id: string;
+  readonly label: string;
+  /** Harness, agent type and model, where the provider names them. */
+  readonly detail: string;
+}
+
+export interface AgentTimelineItem {
+  readonly rowIndex: number;
+  readonly kind: "subagent" | "tool";
+  /** ToolCall.id or SubagentTask.taskId. */
+  readonly id: string;
+  readonly name: string;
+  readonly startMs: number;
+  readonly endMs: number;
+  readonly running: boolean;
+  readonly failed: boolean;
+  readonly detail: string | null;
+}
+
+export interface AgentTimeline {
+  readonly rows: ReadonlyArray<AgentTimelineRow>;
+  readonly items: ReadonlyArray<AgentTimelineItem>;
+  readonly startMs: number;
+  readonly endMs: number;
+}
+
+/**
+ * Who did what when: one row for the main agent (named after the chat's
+ * harness) and one per subagent. A subagent is a span in its own row; every
+ * tool call is a span in the row of the agent that made it. Unfinished spans
+ * run to `nowMs`.
+ */
+export function buildAgentTimeline(
+  inspection: Pick<ThreadInspection, "toolCalls" | "subagents">,
+  mainAgent: { readonly label: string; readonly detail: string },
+  nowMs: number,
+): AgentTimeline {
+  const rows: AgentTimelineRow[] = [{ id: "main", ...mainAgent }];
+  const items: AgentTimelineItem[] = [];
+  const rowByAgentId = new Map<string, number>();
+  const rowByToolUseId = new Map<string, number>();
+  for (const task of inspection.subagents) {
+    const rowIndex = rows.length;
+    rows.push({
+      id: `task:${task.taskId}`,
+      label: task.title,
+      detail: [task.taskType ?? task.agentKind, task.model].filter(Boolean).join(" · "),
+    });
+    if (task.agentId !== null) rowByAgentId.set(task.agentId, rowIndex);
+    if (task.toolUseId !== null) rowByToolUseId.set(task.toolUseId, rowIndex);
+    const startMs = Date.parse(task.startedAt);
+    const endMs = task.endedAt === null ? nowMs : Date.parse(task.endedAt);
+    items.push({
+      rowIndex,
+      kind: "subagent",
+      id: task.taskId,
+      name: task.title,
+      startMs,
+      endMs: Math.max(endMs, startMs),
+      running: task.endedAt === null && task.status === "running",
+      failed: task.status === "failed",
+      detail: task.summary,
+    });
+  }
+  for (const call of inspection.toolCalls) {
+    const rowIndex =
+      (call.agentId !== null ? rowByAgentId.get(call.agentId) : undefined) ??
+      (call.parentToolUseId !== null ? rowByToolUseId.get(call.parentToolUseId) : undefined) ??
+      0;
+    const startMs = Date.parse(call.startedAt);
+    const endMs = call.endedAt === null ? nowMs : Date.parse(call.endedAt);
+    items.push({
+      rowIndex,
+      kind: "tool",
+      id: call.id,
+      name: call.title,
+      startMs,
+      endMs: Math.max(endMs, startMs),
+      running: call.endedAt === null,
+      failed: call.status === "failed" || call.status === "declined",
+      detail: call.detail,
+    });
+  }
+  const starts = items.map((item) => item.startMs).filter((ms) => !Number.isNaN(ms));
+  const ends = items.map((item) => item.endMs).filter((ms) => !Number.isNaN(ms));
+  return {
+    rows,
+    items: items.filter((item) => !Number.isNaN(item.startMs)),
+    startMs: starts.length > 0 ? Math.min(...starts) : nowMs,
+    endMs: ends.length > 0 ? Math.max(...ends) : nowMs,
+  };
+}

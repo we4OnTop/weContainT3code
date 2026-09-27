@@ -3,6 +3,9 @@ import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime"
 import { RefreshCwIcon, ScanSearchIcon, TriangleAlertIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { useThreadShell } from "~/state/entities";
+import { useEnvironments } from "~/state/environments";
 import { threadInspection } from "~/state/threadInspection";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { Badge } from "../../ui/badge";
@@ -11,9 +14,16 @@ import { Sheet, SheetContent } from "../../ui/sheet";
 import { Spinner } from "../../ui/spinner";
 import { Switch } from "../../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
-import { ContextGrowthChart, ContextSizeChart, ProcessedTokensChart } from "./ContextCharts";
+import { getDriverOption } from "../../settings/providerDriverMeta";
+import {
+  AgentGanttChart,
+  ContextGrowthChart,
+  ContextSizeChart,
+  ProcessedTokensChart,
+} from "./ContextCharts";
 import { EnvironmentUsageLimits } from "./UsageLimitsSection";
 import {
+  buildAgentTimeline,
   INPUT_CATEGORIES,
   INPUT_CATEGORY_LABEL,
   formatTokenCount,
@@ -160,6 +170,45 @@ export function ChatInspectorPanel({
 
   const inspection = useMemo(() => (result === null ? null : inspectThread(result)), [result]);
 
+  // The main agent is named after the chat's harness, e.g. "Claude · claude-opus-5-5".
+  const threadShell = useThreadShell(scopeThreadRef(environmentId, threadId));
+  const { environments } = useEnvironments();
+  const mainAgent = useMemo(() => {
+    const modelSelection = threadShell?.modelSelection;
+    const provider = environments
+      .find((environment) => environment.environmentId === environmentId)
+      ?.serverConfig?.providers?.find(
+        (candidate) => candidate.instanceId === modelSelection?.instanceId,
+      );
+    const harness = provider
+      ? (provider.displayName ?? getDriverOption(provider.driver)?.label ?? String(provider.driver))
+      : (modelSelection?.instanceId ?? null);
+    return {
+      label: "Main agent",
+      detail: [harness, modelSelection?.model].filter(Boolean).join(" · "),
+    };
+  }, [environmentId, environments, threadShell?.modelSelection]);
+
+  const selectedId =
+    selection?.kind === "tool"
+      ? selection.call.id
+      : selection?.kind === "subagent"
+        ? selection.task.taskId
+        : null;
+  const selectItem = useCallback(
+    (item: { readonly kind: "subagent" | "tool"; readonly id: string }) => {
+      if (inspection === null) return;
+      if (item.kind === "tool") {
+        const call = inspection.toolCalls.find((candidate) => candidate.id === item.id);
+        if (call) setSelection({ kind: "tool", call });
+      } else {
+        const task = inspection.subagents.find((candidate) => candidate.taskId === item.id);
+        if (task) setSelection({ kind: "subagent", task });
+      }
+    },
+    [inspection],
+  );
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* The title row stays free on the right: the app's window controls
@@ -210,7 +259,13 @@ export function ChatInspectorPanel({
                 Very long chat: only the newest activities are loaded.
               </p>
             ) : null}
-            {tab === "overview" ? <Overview inspection={inspection} /> : null}
+            {tab === "overview" ? (
+              <Overview
+                inspection={inspection}
+                selectedId={selectedId}
+                onSelectTool={(id) => selectItem({ kind: "tool", id })}
+              />
+            ) : null}
             {tab === "usage" ? (
               <UsageTab inspection={inspection} environmentId={environmentId} />
             ) : null}
@@ -224,6 +279,10 @@ export function ChatInspectorPanel({
             {tab === "subagents" ? (
               <SubagentsTab
                 inspection={inspection}
+                mainAgent={mainAgent}
+                selectedId={selectedId}
+                onSelectItem={selectItem}
+                chartGroup={`inspector:${threadId}`}
                 onSelect={(task) => setSelection({ kind: "subagent", task })}
                 onSelectTool={(call) => setSelection({ kind: "tool", call })}
               />
@@ -254,7 +313,15 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
   );
 }
 
-function Overview({ inspection }: { readonly inspection: ThreadInspection }) {
+function Overview({
+  inspection,
+  selectedId,
+  onSelectTool,
+}: {
+  readonly inspection: ThreadInspection;
+  readonly selectedId: string | null;
+  readonly onSelectTool: (toolCallId: string) => void;
+}) {
   const { totals } = inspection;
   const latest = totals.latestUsage;
   const percent =
@@ -287,7 +354,13 @@ function Overview({ inspection }: { readonly inspection: ThreadInspection }) {
             The provider has not reported context usage for this chat yet.
           </p>
         ) : (
-          <ContextSizeChart usage={inspection.usage} compactions={inspection.compactions} />
+          <ContextSizeChart
+            usage={inspection.usage}
+            compactions={inspection.compactions}
+            toolCalls={inspection.toolCalls}
+            selectedToolId={selectedId}
+            onSelectTool={onSelectTool}
+          />
         )}
       </section>
       <section>
@@ -562,67 +635,126 @@ function ToolRow({
 
 function SubagentsTab({
   inspection,
+  mainAgent,
+  selectedId,
+  onSelectItem,
+  chartGroup,
   onSelect,
   onSelectTool,
 }: {
   readonly inspection: ThreadInspection;
+  readonly mainAgent: { readonly label: string; readonly detail: string };
+  readonly selectedId: string | null;
+  readonly onSelectItem: (item: {
+    readonly kind: "subagent" | "tool";
+    readonly id: string;
+  }) => void;
+  readonly chartGroup: string;
   readonly onSelect: (task: SubagentTask) => void;
   readonly onSelectTool: (call: ToolCall) => void;
 }) {
-  if (inspection.subagents.length === 0) {
-    return <p className="text-muted-foreground text-xs">No subagents or tasks in this chat.</p>;
-  }
+  // Running spans end at the newest thing the chat recorded, not the wall clock.
+  const lastSeenMs = useMemo(() => {
+    const times = [
+      ...inspection.timeline.map((entry) => Date.parse(entry.at)),
+      ...inspection.usage.map((point) => Date.parse(point.at)),
+    ].filter((ms) => !Number.isNaN(ms));
+    return times.length > 0 ? Math.max(...times) : 0;
+  }, [inspection.timeline, inspection.usage]);
+  const timeline = useMemo(
+    () => buildAgentTimeline(inspection, mainAgent, lastSeenMs),
+    [inspection, mainAgent, lastSeenMs],
+  );
+  const range = useMemo(() => {
+    const usageTimes = inspection.usage.map((point) => Date.parse(point.at));
+    return {
+      startMs: Math.min(timeline.startMs, ...usageTimes),
+      endMs: Math.max(timeline.endMs, ...usageTimes),
+    };
+  }, [inspection.usage, timeline.endMs, timeline.startMs]);
   return (
-    <ul className="flex flex-col gap-2">
-      {inspection.subagents.toReversed().map((task) => {
-        // Calls the subagent made: linked by its agent id or its spawning tool call.
-        const calls = inspection.toolCalls.filter(
-          (call) =>
-            (task.agentId !== null && call.agentId === task.agentId) ||
-            (task.toolUseId !== null && call.parentToolUseId === task.toolUseId),
-        );
-        return (
-          <li key={task.taskId} className="rounded-md border">
-            <button
-              type="button"
-              onClick={() => onSelect(task)}
-              className="flex w-full flex-wrap items-center gap-2 px-2 py-1.5 text-left text-xs hover:bg-accent"
-            >
-              <span className="w-16 shrink-0 tabular-nums text-muted-foreground">
-                {clock(task.startedAt)}
-              </span>
-              <span className="min-w-0 flex-1 truncate font-medium">{task.title}</span>
-              {task.taskType ? (
-                <Badge size="sm" variant="outline">
-                  {task.taskType}
-                </Badge>
-              ) : null}
-              {task.model ? <span className="text-muted-foreground">{task.model}</span> : null}
-              {task.totalTokens !== null ? (
-                <span className="tabular-nums">{formatTokenCount(task.totalTokens)} tok</span>
-              ) : null}
-              <span className={failed(task.status) ? "text-destructive" : "text-muted-foreground"}>
-                {task.status}
-              </span>
-            </button>
-            {task.summary ? (
-              <p className="line-clamp-3 border-t px-2 py-1 text-muted-foreground text-xs whitespace-pre-wrap">
-                {task.summary}
-              </p>
-            ) : null}
-            {calls.length > 0 ? (
-              <ul className="border-t">
-                {calls.map((call) => (
-                  <li key={call.id}>
-                    <ToolRow call={call} onSelect={onSelectTool} indent />
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </li>
-        );
-      })}
-    </ul>
+    <div className="flex flex-col gap-4">
+      <section className="flex flex-col gap-1">
+        <h3 className="font-medium text-sm">Context and agents over time</h3>
+        <p className="text-muted-foreground text-xs">
+          Both charts share one time axis: hover or zoom one and the other follows. Dots on the
+          context curve and bars below are tool calls; click one to open its raw input and output.
+        </p>
+        {inspection.usage.length > 0 ? (
+          <ContextSizeChart
+            usage={inspection.usage}
+            compactions={inspection.compactions}
+            toolCalls={inspection.toolCalls}
+            selectedToolId={selectedId}
+            onSelectTool={(id) => onSelectItem({ kind: "tool", id })}
+            group={chartGroup}
+            range={range}
+          />
+        ) : null}
+        <AgentGanttChart
+          timeline={{ ...timeline, ...range }}
+          selectedId={selectedId}
+          onSelect={onSelectItem}
+          group={chartGroup}
+        />
+      </section>
+      {inspection.subagents.length === 0 ? (
+        <p className="text-muted-foreground text-xs">No subagents or tasks in this chat.</p>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {inspection.subagents.toReversed().map((task) => {
+            // Calls the subagent made: linked by its agent id or its spawning tool call.
+            const calls = inspection.toolCalls.filter(
+              (call) =>
+                (task.agentId !== null && call.agentId === task.agentId) ||
+                (task.toolUseId !== null && call.parentToolUseId === task.toolUseId),
+            );
+            return (
+              <li key={task.taskId} className="rounded-md border">
+                <button
+                  type="button"
+                  onClick={() => onSelect(task)}
+                  className="flex w-full flex-wrap items-center gap-2 px-2 py-1.5 text-left text-xs hover:bg-accent"
+                >
+                  <span className="w-16 shrink-0 tabular-nums text-muted-foreground">
+                    {clock(task.startedAt)}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate font-medium">{task.title}</span>
+                  {task.taskType ? (
+                    <Badge size="sm" variant="outline">
+                      {task.taskType}
+                    </Badge>
+                  ) : null}
+                  {task.model ? <span className="text-muted-foreground">{task.model}</span> : null}
+                  {task.totalTokens !== null ? (
+                    <span className="tabular-nums">{formatTokenCount(task.totalTokens)} tok</span>
+                  ) : null}
+                  <span
+                    className={failed(task.status) ? "text-destructive" : "text-muted-foreground"}
+                  >
+                    {task.status}
+                  </span>
+                </button>
+                {task.summary ? (
+                  <p className="line-clamp-3 border-t px-2 py-1 text-muted-foreground text-xs whitespace-pre-wrap">
+                    {task.summary}
+                  </p>
+                ) : null}
+                {calls.length > 0 ? (
+                  <ul className="border-t">
+                    {calls.map((call) => (
+                      <li key={call.id}>
+                        <ToolRow call={call} onSelect={onSelectTool} indent />
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }
 
