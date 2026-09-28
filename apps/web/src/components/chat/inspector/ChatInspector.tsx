@@ -20,6 +20,7 @@ import {
   ContextGrowthChart,
   ContextSizeChart,
   ProcessedTokensChart,
+  ThinkingPerTurnChart,
 } from "./ContextCharts";
 import { EnvironmentUsageLimits } from "./UsageLimitsSection";
 import {
@@ -31,13 +32,14 @@ import {
   prettyPayload,
   tokensBetween,
   type ContextInput,
+  type ReasoningBlock,
   type SubagentTask,
   type ThreadInspection,
   type TimelineEntry,
   type ToolCall,
 } from "./threadInspection";
 
-type Tab = "overview" | "usage" | "context" | "tools" | "subagents" | "timeline";
+type Tab = "overview" | "usage" | "context" | "tools" | "subagents" | "thinking" | "timeline";
 
 const TABS: ReadonlyArray<readonly [Tab, string]> = [
   ["overview", "Overview"],
@@ -45,11 +47,13 @@ const TABS: ReadonlyArray<readonly [Tab, string]> = [
   ["context", "Context"],
   ["tools", "Tools"],
   ["subagents", "Subagents"],
+  ["thinking", "Thinking"],
   ["timeline", "Timeline"],
 ];
 
 const TIMELINE_GROUPS: ReadonlyArray<TimelineEntry["group"]> = [
   "message",
+  "thinking",
   "tool",
   "subagent",
   "context",
@@ -86,7 +90,8 @@ const failed = (status: string) => status === "failed" || status === "declined";
 type Selection =
   | { readonly kind: "timeline"; readonly entry: TimelineEntry }
   | { readonly kind: "tool"; readonly call: ToolCall }
-  | { readonly kind: "subagent"; readonly task: SubagentTask };
+  | { readonly kind: "subagent"; readonly task: SubagentTask }
+  | { readonly kind: "reasoning"; readonly block: ReasoningBlock };
 
 /** Header button: opens the inspector for the active chat. */
 export function ChatInspectorButton({
@@ -194,11 +199,16 @@ export function ChatInspectorPanel({
       ? selection.call.id
       : selection?.kind === "subagent"
         ? selection.task.taskId
-        : null;
+        : selection?.kind === "reasoning"
+          ? selection.block.id
+          : null;
   const selectItem = useCallback(
-    (item: { readonly kind: "subagent" | "tool"; readonly id: string }) => {
+    (item: { readonly kind: "subagent" | "tool" | "thinking"; readonly id: string }) => {
       if (inspection === null) return;
-      if (item.kind === "tool") {
+      if (item.kind === "thinking") {
+        const block = inspection.reasoning.find((candidate) => candidate.id === item.id);
+        if (block) setSelection({ kind: "reasoning", block });
+      } else if (item.kind === "tool") {
         const call = inspection.toolCalls.find((candidate) => candidate.id === item.id);
         if (call) setSelection({ kind: "tool", call });
       } else {
@@ -284,6 +294,14 @@ export function ChatInspectorPanel({
                 onSelectItem={selectItem}
                 chartGroup={`inspector:${threadId}`}
                 onSelect={(task) => setSelection({ kind: "subagent", task })}
+                onSelectTool={(call) => setSelection({ kind: "tool", call })}
+              />
+            ) : null}
+            {tab === "thinking" ? (
+              <ThinkingTab
+                inspection={inspection}
+                selectedId={selectedId}
+                onSelectBlock={(block) => setSelection({ kind: "reasoning", block })}
                 onSelectTool={(call) => setSelection({ kind: "tool", call })}
               />
             ) : null}
@@ -646,7 +664,7 @@ function SubagentsTab({
   readonly mainAgent: { readonly label: string; readonly detail: string };
   readonly selectedId: string | null;
   readonly onSelectItem: (item: {
-    readonly kind: "subagent" | "tool";
+    readonly kind: "subagent" | "tool" | "thinking";
     readonly id: string;
   }) => void;
   readonly chartGroup: string;
@@ -754,6 +772,112 @@ function SubagentsTab({
           })}
         </ul>
       )}
+    </div>
+  );
+}
+
+/**
+ * The model's thinking: how much, when, and what it did next. Each thought is
+ * followed by the tool calls the main agent made before it thought again, so
+ * a decision can be traced from reasoning to action.
+ */
+function ThinkingTab({
+  inspection,
+  selectedId,
+  onSelectBlock,
+  onSelectTool,
+}: {
+  readonly inspection: ThreadInspection;
+  readonly selectedId: string | null;
+  readonly onSelectBlock: (block: ReasoningBlock) => void;
+  readonly onSelectTool: (call: ToolCall) => void;
+}) {
+  const [shown, setShown] = useState(PAGE / 4);
+  const { totals, thoughtChain } = inspection;
+  if (totals.reasoningBlocks === 0) {
+    return (
+      <p className="text-muted-foreground text-xs">
+        No reasoning was recorded for this chat. Some providers only send it with extended thinking
+        switched on, and some send a summary instead of the full trace.
+      </p>
+    );
+  }
+  const thinkingMs = inspection.reasoning.reduce(
+    (total, block) => total + (block.durationMs ?? 0),
+    0,
+  );
+  const steps = thoughtChain.toReversed();
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Stat label="Thoughts" value={String(totals.reasoningBlocks)} />
+        <Stat
+          label="Thinking text"
+          value={`~${formatTokenCount(Math.ceil(totals.reasoningChars / 4))}`}
+          hint="tokens, estimated"
+        />
+        <Stat
+          label="Reasoning output"
+          value={
+            totals.reasoningOutputTokens > 0 ? formatTokenCount(totals.reasoningOutputTokens) : "–"
+          }
+          hint="tokens, as reported"
+        />
+        <Stat
+          label="Time thinking"
+          // A thought sent in one piece has no measurable duration.
+          value={thinkingMs > 0 ? duration(thinkingMs) : "–"}
+        />
+      </div>
+      <section>
+        <h3 className="mb-1 font-medium text-sm">Thinking per turn</h3>
+        <ThinkingPerTurnChart turns={inspection.turns} />
+      </section>
+      <section>
+        <h3 className="mb-1 font-medium text-sm">Thought → action (newest first)</h3>
+        <ul className="flex flex-col gap-2">
+          {steps.slice(0, shown).map(({ block, actions }) => (
+            <li
+              key={block.id}
+              className={`rounded-md border ${block.id === selectedId ? "border-primary" : ""}`}
+            >
+              <button
+                type="button"
+                onClick={() => onSelectBlock(block)}
+                className="flex w-full flex-col gap-1 px-2 py-1.5 text-left text-xs hover:bg-accent"
+              >
+                <span className="flex items-center gap-2 text-muted-foreground">
+                  <span className="tabular-nums">{clock(block.startedAt)}</span>
+                  <Badge size="sm" variant="outline">
+                    {block.kind === "summary" ? "summary" : "reasoning"}
+                  </Badge>
+                  <span className="tabular-nums">
+                    ~{formatTokenCount(Math.ceil(block.textChars / 4))} tokens
+                  </span>
+                  {block.durationMs !== null ? <span>{duration(block.durationMs)}</span> : null}
+                </span>
+                <span className="line-clamp-4 whitespace-pre-wrap text-foreground">
+                  {block.text || "(no text)"}
+                </span>
+              </button>
+              {actions.length > 0 ? (
+                <ul className="border-t">
+                  {actions.map((call) => (
+                    <li key={call.id}>
+                      <ToolRow call={call} onSelect={onSelectTool} indent />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="border-t px-2 py-1 text-muted-foreground text-xs">
+                  No tool call followed: the answer came straight from this thought.
+                </p>
+              )}
+            </li>
+          ))}
+        </ul>
+        <ShowMore shown={shown} total={steps.length} onMore={() => setShown(shown + PAGE / 4)} />
+      </section>
     </div>
   );
 }
@@ -885,6 +1009,17 @@ function detailText(
         title: `${selection.task.title} · ${selection.task.status}`,
         body: dumpActivities(selection.task.activityIds),
       };
+    case "reasoning": {
+      const { block } = selection;
+      const cut =
+        block.textChars > block.text.length
+          ? `\n… (cut at ${block.text.length} of ${block.textChars} characters)`
+          : "";
+      return {
+        title: `${block.kind === "summary" ? "Reasoning summary" : "Reasoning"} · ${block.startedAt}`,
+        body: `${block.text || "(the provider sent no reasoning text)"}${cut}`,
+      };
+    }
   }
 }
 

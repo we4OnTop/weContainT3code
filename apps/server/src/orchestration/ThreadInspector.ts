@@ -81,6 +81,7 @@ export function toInspectMessage(row: ProjectionThreadMessage): ThreadInspectMes
     role: row.role,
     turnId: row.turnId,
     createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
     text:
       row.text.length > THREAD_INSPECT_MESSAGE_TEXT_LIMIT
         ? row.text.slice(0, THREAD_INSPECT_MESSAGE_TEXT_LIMIT)

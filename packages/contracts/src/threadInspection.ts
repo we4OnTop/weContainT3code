@@ -47,6 +47,8 @@ export const ThreadInspectMessage = Schema.Struct({
   role: ShortText,
   turnId: Schema.NullOr(TurnId),
   createdAt: IsoDateTime,
+  /** Last write; for a streamed reasoning block, when the model stopped thinking. */
+  updatedAt: Schema.optional(IsoDateTime),
   /** Possibly cut at THREAD_INSPECT_MESSAGE_TEXT_LIMIT; `textChars` is the full length. */
   text: Schema.String.check(Schema.isMaxLength(THREAD_INSPECT_MESSAGE_TEXT_LIMIT)),
   textChars: NonNegativeInt,

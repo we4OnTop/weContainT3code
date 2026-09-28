@@ -82,6 +82,9 @@ export interface SubagentTask {
   readonly taskId: string;
   readonly title: string;
   readonly taskType: string | null;
+  /** The subagent type the harness picked, e.g. "Explore". */
+  readonly role: string | null;
+  readonly effort: string | null;
   readonly agentKind: string | null;
   readonly agentId: string | null;
   readonly model: string | null;
@@ -109,6 +112,8 @@ export interface UsagePoint {
   readonly lastOutputTokens: number | null;
   readonly totalProcessedTokens: number | null;
   readonly autoCompactThreshold: number | null;
+  /** Output tokens of the last request that were reasoning, where reported. */
+  readonly lastReasoningOutputTokens: number | null;
 }
 
 export interface Compaction {
@@ -162,6 +167,8 @@ export interface TurnSummary {
   readonly deltaTokens: number | null;
   /** The biggest single inputs of the turn. */
   readonly topInputs: ReadonlyArray<ContextInput>;
+  /** Characters of reasoning the model produced in the turn. */
+  readonly reasoningChars: number;
 }
 
 export interface ContextInput {
@@ -178,7 +185,15 @@ export interface TimelineEntry {
   readonly id: string;
   readonly at: string;
   readonly turnId: string | null;
-  readonly group: "message" | "tool" | "subagent" | "context" | "approval" | "error" | "other";
+  readonly group:
+    | "message"
+    | "thinking"
+    | "tool"
+    | "subagent"
+    | "context"
+    | "approval"
+    | "error"
+    | "other";
   readonly kind: string;
   readonly summary: string;
   readonly sizeBytes: number;
@@ -204,12 +219,18 @@ export interface ThreadInspection {
   readonly turns: ReadonlyArray<TurnSummary>;
   readonly timeline: ReadonlyArray<TimelineEntry>;
   readonly toolStats: ReadonlyArray<ToolStat>;
+  readonly reasoning: ReadonlyArray<ReasoningBlock>;
+  readonly thoughtChain: ReadonlyArray<ThoughtStep>;
   readonly totals: {
     readonly messages: number;
     readonly toolCalls: number;
     readonly failedToolCalls: number;
     readonly subagents: number;
     readonly compactions: number;
+    readonly reasoningBlocks: number;
+    readonly reasoningChars: number;
+    /** Sum of the reasoning share of every request's output, where reported. */
+    readonly reasoningOutputTokens: number;
     readonly estimatedInputTokens: Record<InputCategory, number>;
     readonly latestUsage: UsagePoint | null;
     readonly peakUsedTokens: number;
@@ -303,6 +324,8 @@ function buildSubagents(activities: ReadonlyArray<ThreadInspectActivity>): Subag
     taskId: string;
     title: string;
     taskType: string | null;
+    role: string | null;
+    effort: string | null;
     agentKind: string | null;
     agentId: string | null;
     model: string | null;
@@ -328,6 +351,8 @@ function buildSubagents(activities: ReadonlyArray<ThreadInspectActivity>): Subag
       taskId,
       title: "Task",
       taskType: null,
+      role: null,
+      effort: null,
       agentKind: null,
       agentId: null,
       model: null,
@@ -346,6 +371,8 @@ function buildSubagents(activities: ReadonlyArray<ThreadInspectActivity>): Subag
     draft.activityIds.push(activity.activityId);
     draft.title = str(payload?.title) ?? str(payload?.detail) ?? draft.title;
     draft.taskType = str(payload?.taskType) ?? draft.taskType;
+    draft.role = str(payload?.role) ?? draft.role;
+    draft.effort = str(payload?.effort) ?? draft.effort;
     draft.agentKind = str(payload?.agentKind) ?? draft.agentKind;
     draft.agentId = str(payload?.agentId) ?? draft.agentId;
     draft.model = str(payload?.model) ?? draft.model;
@@ -386,6 +413,7 @@ function buildUsage(activities: ReadonlyArray<ThreadInspectActivity>): UsagePoin
       lastOutputTokens: num(payload?.lastOutputTokens),
       totalProcessedTokens: num(payload?.totalProcessedTokens),
       autoCompactThreshold: num(payload?.autoCompactThreshold),
+      lastReasoningOutputTokens: num(payload?.lastReasoningOutputTokens),
     });
   }
   return points;
@@ -419,6 +447,8 @@ function buildInputs(
 ): ContextInput[] {
   const inputs: ContextInput[] = [];
   for (const message of messages) {
+    // Thinking is not sent back as context on later turns.
+    if (message.role === "reasoning") continue;
     const category = messageCategory(message.role);
     inputs.push({
       id: `message:${message.messageId}`,
@@ -520,6 +550,9 @@ function buildTurns(
       maxTokens: lastUsage?.maxTokens ?? null,
       deltaTokens,
       topInputs: turnInputs.toSorted((a, b) => b.chars - a.chars).slice(0, 5),
+      reasoningChars: messages
+        .filter((message) => message.turnId === turnId && message.role === "reasoning")
+        .reduce((total, message) => total + message.textChars, 0),
     };
   });
 }
@@ -533,7 +566,7 @@ function buildTimeline(
       id: `message:${message.messageId}`,
       at: message.createdAt,
       turnId: message.turnId,
-      group: "message",
+      group: message.role === "reasoning" ? "thinking" : "message",
       kind: `message.${message.role}`,
       summary: message.text.slice(0, 200) || "(empty)",
       sizeBytes: message.textChars,
@@ -583,6 +616,7 @@ export function inspectThread(result: ThreadInspectResult): ThreadInspection {
   const processed = processedTokenSeries(usage);
   const compactions = buildCompactions(activities);
   const inputs = buildInputs(result.messages, toolCalls, subagents);
+  const reasoning = buildReasoning(result.messages);
   const estimatedInputTokens = emptyAdded();
   for (const input of inputs) estimatedInputTokens[input.category] += input.estimatedTokens;
   return {
@@ -602,6 +636,8 @@ export function inspectThread(result: ThreadInspectResult): ThreadInspection {
     ),
     timeline: buildTimeline(result.messages, activities),
     toolStats: buildToolStats(toolCalls),
+    reasoning,
+    thoughtChain: buildThoughtChain(reasoning, toolCalls),
     totals: {
       messages: result.messages.length,
       toolCalls: toolCalls.length,
@@ -610,6 +646,12 @@ export function inspectThread(result: ThreadInspectResult): ThreadInspection {
       ).length,
       subagents: subagents.length,
       compactions: compactions.length,
+      reasoningBlocks: reasoning.length,
+      reasoningChars: reasoning.reduce((total, block) => total + block.textChars, 0),
+      reasoningOutputTokens: usage.reduce(
+        (total, point) => total + (point.lastReasoningOutputTokens ?? 0),
+        0,
+      ),
       estimatedInputTokens,
       latestUsage: usage.at(-1) ?? null,
       peakUsedTokens: usage.reduce((peak, point) => Math.max(peak, point.usedTokens), 0),
@@ -684,9 +726,13 @@ export function tokensBetween(
   return total;
 }
 
-/** The reported context size at an instant: the last snapshot at or before it. */
+/**
+ * The reported context size at an instant: the last snapshot at or before
+ * it, or the first one when the instant precedes every snapshot (providers
+ * report after the request that a tool call belongs to).
+ */
 export function contextAt(usage: ReadonlyArray<UsagePoint>, ms: number): number | null {
-  let value: number | null = null;
+  let value: number | null = usage[0]?.usedTokens ?? null;
   for (const point of usage) {
     if (Date.parse(point.at) > ms) break;
     value = point.usedTokens;
@@ -703,8 +749,8 @@ export interface AgentTimelineRow {
 
 export interface AgentTimelineItem {
   readonly rowIndex: number;
-  readonly kind: "subagent" | "tool";
-  /** ToolCall.id or SubagentTask.taskId. */
+  readonly kind: "subagent" | "tool" | "thinking";
+  /** ToolCall.id, SubagentTask.taskId or ReasoningBlock.id. */
   readonly id: string;
   readonly name: string;
   readonly startMs: number;
@@ -712,6 +758,8 @@ export interface AgentTimelineItem {
   readonly running: boolean;
   readonly failed: boolean;
   readonly detail: string | null;
+  /** For a subagent: the row of the agent that started it. */
+  readonly startedByRowIndex: number | null;
 }
 
 export interface AgentTimeline {
@@ -728,7 +776,8 @@ export interface AgentTimeline {
  * run to `nowMs`.
  */
 export function buildAgentTimeline(
-  inspection: Pick<ThreadInspection, "toolCalls" | "subagents">,
+  inspection: Pick<ThreadInspection, "toolCalls" | "subagents"> &
+    Partial<Pick<ThreadInspection, "reasoning">>,
   mainAgent: { readonly label: string; readonly detail: string },
   nowMs: number,
 ): AgentTimeline {
@@ -736,12 +785,37 @@ export function buildAgentTimeline(
   const items: AgentTimelineItem[] = [];
   const rowByAgentId = new Map<string, number>();
   const rowByToolUseId = new Map<string, number>();
+  const reasoning = inspection.reasoning ?? [];
+  if (reasoning.length > 0) {
+    // The main agent's thinking gets its own lane right under it.
+    const rowIndex = rows.length;
+    rows.push({ id: "thinking", label: "Thinking", detail: mainAgent.detail });
+    for (const block of reasoning) {
+      const startMs = Date.parse(block.startedAt);
+      if (Number.isNaN(startMs)) continue;
+      const endMs = block.endedAt === null ? startMs : Date.parse(block.endedAt);
+      items.push({
+        rowIndex,
+        startedByRowIndex: null,
+        kind: "thinking",
+        id: block.id,
+        name: block.kind === "summary" ? "Reasoning summary" : "Reasoning",
+        startMs,
+        endMs: Math.max(Number.isNaN(endMs) ? startMs : endMs, startMs),
+        running: false,
+        failed: false,
+        detail: block.text.slice(0, 200),
+      });
+    }
+  }
   for (const task of inspection.subagents) {
     const rowIndex = rows.length;
     rows.push({
       id: `task:${task.taskId}`,
       label: task.title,
-      detail: [task.taskType ?? task.agentKind, task.model].filter(Boolean).join(" · "),
+      detail: [task.role ?? task.taskType ?? task.agentKind, task.model, task.effort]
+        .filter(Boolean)
+        .join(" · "),
     });
     if (task.agentId !== null) rowByAgentId.set(task.agentId, rowIndex);
     if (task.toolUseId !== null) rowByToolUseId.set(task.toolUseId, rowIndex);
@@ -749,6 +823,7 @@ export function buildAgentTimeline(
     const endMs = task.endedAt === null ? nowMs : Date.parse(task.endedAt);
     items.push({
       rowIndex,
+      startedByRowIndex: null,
       kind: "subagent",
       id: task.taskId,
       name: task.title,
@@ -768,6 +843,7 @@ export function buildAgentTimeline(
     const endMs = call.endedAt === null ? nowMs : Date.parse(call.endedAt);
     items.push({
       rowIndex,
+      startedByRowIndex: null,
       kind: "tool",
       id: call.id,
       name: call.title,
@@ -778,6 +854,14 @@ export function buildAgentTimeline(
       detail: call.detail,
     });
   }
+  // A subagent was started by its parent subagent, or else by the main agent.
+  const withParents = items.map((item) => {
+    if (item.kind !== "subagent") return item;
+    const task = inspection.subagents.find((candidate) => candidate.taskId === item.id);
+    const parentRow = task?.parentAgentId != null ? (rowByAgentId.get(task.parentAgentId) ?? 0) : 0;
+    return { ...item, startedByRowIndex: parentRow };
+  });
+  items.splice(0, items.length, ...withParents);
   const starts = items.map((item) => item.startMs).filter((ms) => !Number.isNaN(ms));
   const ends = items.map((item) => item.endMs).filter((ms) => !Number.isNaN(ms));
   return {
@@ -786,4 +870,70 @@ export function buildAgentTimeline(
     startMs: starts.length > 0 ? Math.min(...starts) : nowMs,
     endMs: ends.length > 0 ? Math.max(...ends) : nowMs,
   };
+}
+
+export interface ReasoningBlock {
+  /** The message id. */
+  readonly id: string;
+  /** A provider may stream a summary of its reasoning, the raw trace, or both. */
+  readonly kind: "summary" | "raw";
+  readonly turnId: string | null;
+  readonly startedAt: string;
+  readonly endedAt: string | null;
+  readonly durationMs: number | null;
+  /** Possibly cut; textChars is the full length. */
+  readonly text: string;
+  readonly textChars: number;
+}
+
+/** The model's thinking, in the order it happened. */
+function buildReasoning(messages: ReadonlyArray<ThreadInspectMessage>): ReasoningBlock[] {
+  return messages
+    .filter((message) => message.role === "reasoning")
+    .map((message) => {
+      const endedAt = message.updatedAt ?? null;
+      const durationMs =
+        endedAt === null ? null : Math.max(0, time(endedAt) - time(message.createdAt));
+      return {
+        id: message.messageId,
+        kind: message.messageId.includes("summary:") ? "summary" : "raw",
+        turnId: message.turnId,
+        startedAt: message.createdAt,
+        endedAt,
+        durationMs,
+        text: message.text,
+        textChars: message.textChars,
+      } satisfies ReasoningBlock;
+    })
+    .toSorted((a, b) => time(a.startedAt) - time(b.startedAt));
+}
+
+/** A thought and what the model did next, until it thought again. */
+export interface ThoughtStep {
+  readonly block: ReasoningBlock;
+  readonly actions: ReadonlyArray<ToolCall>;
+}
+
+export function buildThoughtChain(
+  reasoning: ReadonlyArray<ReasoningBlock>,
+  toolCalls: ReadonlyArray<ToolCall>,
+): ThoughtStep[] {
+  const calls = toolCalls.toSorted((a, b) => time(a.startedAt) - time(b.startedAt));
+  return reasoning.map((block, index) => {
+    const from = time(block.startedAt);
+    const next = reasoning[index + 1];
+    const until = next ? time(next.startedAt) : Number.POSITIVE_INFINITY;
+    return {
+      block,
+      actions: calls.filter((call) => {
+        const at = time(call.startedAt);
+        return (
+          at >= from &&
+          at < until &&
+          call.agentId === null &&
+          (block.turnId === null || call.turnId === block.turnId)
+        );
+      }),
+    };
+  });
 }

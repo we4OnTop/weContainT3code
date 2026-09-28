@@ -221,6 +221,7 @@ function usagePoint(at: string, fields: Partial<UsagePoint>): UsagePoint {
     lastOutputTokens: null,
     totalProcessedTokens: null,
     autoCompactThreshold: null,
+    lastReasoningOutputTokens: null,
     ...fields,
   };
 }
@@ -238,7 +239,8 @@ describe("buildAgentTimeline", () => {
           "task.started",
           {
             taskId: "k1",
-            taskType: "Explore",
+            taskType: "local_agent",
+            role: "Explore",
             agentId: "ag1",
             title: "Map the repo",
             model: "haiku",
@@ -269,7 +271,12 @@ describe("buildAgentTimeline", () => {
     const byId = new Map(timeline.items.map((item) => [item.id, item]));
     expect(byId.get("main-1")?.rowIndex).toBe(0);
     expect(byId.get("sub-1")?.rowIndex).toBe(1);
-    expect(byId.get("k1")).toMatchObject({ kind: "subagent", rowIndex: 1, detail: "12 packages" });
+    expect(byId.get("k1")).toMatchObject({
+      kind: "subagent",
+      rowIndex: 1,
+      startedByRowIndex: 0,
+      detail: "12 packages",
+    });
     expect(byId.get("k1")!.endMs - byId.get("k1")!.startMs).toBe(7000);
   });
 });
@@ -280,8 +287,77 @@ describe("contextAt", () => {
       usagePoint("2026-09-27T10:00:00.000Z", { usedTokens: 100 }),
       usagePoint("2026-09-27T10:05:00.000Z", { usedTokens: 900 }),
     ];
-    expect(contextAt(usage, Date.parse("2026-09-27T09:59:00.000Z"))).toBeNull();
+    expect(contextAt([], Date.parse("2026-09-27T09:59:00.000Z"))).toBeNull();
+    expect(contextAt(usage, Date.parse("2026-09-27T09:59:00.000Z"))).toBe(100);
     expect(contextAt(usage, Date.parse("2026-09-27T10:03:00.000Z"))).toBe(100);
     expect(contextAt(usage, Date.parse("2026-09-27T10:06:00.000Z"))).toBe(900);
+  });
+});
+
+describe("reasoning", () => {
+  it("keeps thinking out of the context estimate and links each thought to what followed", () => {
+    const message = (
+      id: string,
+      role: string,
+      at: string,
+      text: string,
+      updatedAt?: string,
+    ): ThreadInspectResult["messages"][number] => ({
+      messageId: id as never,
+      role,
+      turnId: "turn-1" as never,
+      createdAt: at,
+      ...(updatedAt ? { updatedAt } : {}),
+      text,
+      textChars: text.length,
+      attachments: [],
+    });
+    const result = inspectThread(
+      base(
+        [
+          activity(
+            "tool.completed",
+            { itemType: "command_execution", toolCallId: "c1", title: "ls" },
+            "2026-09-27T10:00:05.000Z",
+          ),
+          activity(
+            "tool.completed",
+            { itemType: "command_execution", toolCallId: "c2", title: "git log" },
+            "2026-09-27T10:00:20.000Z",
+          ),
+        ],
+        {
+          messages: [
+            message("user:1", "user", "2026-09-27T10:00:00.000Z", "list files"),
+            message(
+              "reasoning:t1:raw:a",
+              "reasoning",
+              "2026-09-27T10:00:01.000Z",
+              "I should list files first.",
+              "2026-09-27T10:00:04.000Z",
+            ),
+            message(
+              "reasoning:t1:summary:b",
+              "reasoning",
+              "2026-09-27T10:00:15.000Z",
+              "Now the log.",
+            ),
+          ],
+        },
+      ),
+    );
+    expect(result.reasoning.map((block) => [block.kind, block.durationMs])).toEqual([
+      ["raw", 3000],
+      ["summary", null],
+    ]);
+    expect(result.thoughtChain.map((step) => step.actions.map((call) => call.title))).toEqual([
+      ["ls"],
+      ["git log"],
+    ]);
+    expect(result.inputs.some((input) => input.label.startsWith("reasoning"))).toBe(false);
+    expect(result.turns[0]?.reasoningChars).toBe(
+      "I should list files first.".length + "Now the log.".length,
+    );
+    expect(result.timeline.filter((entry) => entry.group === "thinking")).toHaveLength(2);
   });
 });

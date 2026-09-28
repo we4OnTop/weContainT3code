@@ -195,9 +195,12 @@ export function ContextSizeChart({
     const threshold =
       usage.findLast((point) => point.autoCompactThreshold !== null)?.autoCompactThreshold ?? null;
     const byTime = new Map(usage.map((point) => [Date.parse(point.at), point]));
+    // Linked to the agent timeline: same left edge, so the time axes line
+    // up, and one zoom slider (the timeline's) for both.
+    const linked = range !== undefined;
     return {
       animation: false,
-      grid: { left: 52, right: 16, top: 16, bottom: 56 },
+      grid: { left: linked ? GANTT_GRID_LEFT : 52, right: 16, top: 16, bottom: linked ? 28 : 56 },
       tooltip: {
         trigger: "axis",
         // Canvas-rendered text: nothing from the chat is parsed as HTML.
@@ -241,16 +244,18 @@ export function ContextSizeChart({
           formatter: (value: number) => formatTokenCount(value),
         },
       },
-      dataZoom: [
-        { type: "inside" },
-        {
-          type: "slider",
-          height: 18,
-          bottom: 8,
-          borderColor: ink.grid,
-          textStyle: { color: ink.secondary },
-        },
-      ],
+      dataZoom: linked
+        ? [{ type: "inside" }]
+        : [
+            { type: "inside" },
+            {
+              type: "slider",
+              height: 18,
+              bottom: 8,
+              borderColor: ink.grid,
+              textStyle: { color: ink.secondary },
+            },
+          ],
       series: [
         {
           type: "line",
@@ -523,6 +528,8 @@ export function ProcessedTokensChart({
 }
 
 const GANTT_ROW_HEIGHT = 28;
+/** Room for agent names; the context chart uses it too when linked. */
+const GANTT_GRID_LEFT = 140;
 
 /**
  * Who worked when: the main agent and every subagent in its own row, each
@@ -537,7 +544,10 @@ export function AgentGanttChart({
 }: {
   readonly timeline: AgentTimeline;
   readonly selectedId?: string | null;
-  readonly onSelect?: (item: { readonly kind: "subagent" | "tool"; readonly id: string }) => void;
+  readonly onSelect?: (item: {
+    readonly kind: "subagent" | "tool" | "thinking";
+    readonly id: string;
+  }) => void;
   readonly group?: string;
 }) {
   const build = (dark: boolean): ChartOption => {
@@ -545,10 +555,11 @@ export function AgentGanttChart({
     const subagentColor = dark ? "#199e70" : "#1baf7a";
     const toolColor = dark ? "#3987e5" : "#2a78d6";
     const failedColor = dark ? "#e66767" : "#e34948";
+    const thinkingColor = dark ? "#9085e9" : "#4a3aa7";
     const rowLabels = timeline.rows.map((row) => chartText(row.label, 28));
     return {
       animation: false,
-      grid: { left: 140, right: 16, top: 8, bottom: 44 },
+      grid: { left: GANTT_GRID_LEFT, right: 16, top: 8, bottom: 44 },
       tooltip: {
         trigger: "item",
         renderMode: "richText",
@@ -556,12 +567,17 @@ export function AgentGanttChart({
           const entry = Array.isArray(params) ? params[0] : params;
           const item = timeline.items[(entry?.value as number[] | undefined)?.[3] ?? -1];
           if (!item) return "";
-          const row = timeline.rows[item.rowIndex];
+          // A subagent names who started it; a tool call, the agent that made it.
+          const row = timeline.rows[item.startedByRowIndex ?? item.rowIndex];
           const seconds = (item.endMs - item.startMs) / 1000;
           return [
             chartText(item.name, 80),
-            item.kind === "subagent" ? "Subagent" : "Tool call",
-            `by ${chartText(row?.label ?? "", 60)}${row?.detail ? ` (${chartText(row.detail, 60)})` : ""}`,
+            item.kind === "subagent"
+              ? "Subagent"
+              : item.kind === "thinking"
+                ? "Thinking"
+                : "Tool call",
+            `${item.kind === "subagent" ? "started by" : "by"} ${chartText(row?.label ?? "", 60)}${row?.detail ? ` (${chartText(row.detail, 60)})` : ""}`,
             `${clock(item.startMs)} · ${seconds < 60 ? `${seconds.toFixed(1)}s` : `${(seconds / 60).toFixed(1)}min`}${item.running ? " so far" : ""}`,
             ...(item.failed ? ["Failed"] : []),
             ...(item.detail ? [chartText(item.detail, 160)] : []),
@@ -606,7 +622,7 @@ export function AgentGanttChart({
             const start = api.coord([api.value(1), api.value(0)]);
             const end = api.coord([api.value(2), api.value(0)]);
             const band = (api.size?.([0, 1]) as number[] | undefined)?.[1] ?? GANTT_ROW_HEIGHT;
-            const height = band * (item.kind === "subagent" ? 0.62 : 0.28);
+            const height = band * (item.kind === "tool" ? 0.28 : 0.62);
             const coordSys = params.coordSys as unknown as {
               x: number;
               y: number;
@@ -632,8 +648,10 @@ export function AgentGanttChart({
                   ? failedColor
                   : item.kind === "subagent"
                     ? subagentColor
-                    : toolColor,
-                opacity: item.kind === "subagent" ? 0.45 : item.running ? 0.6 : 0.95,
+                    : item.kind === "thinking"
+                      ? thinkingColor
+                      : toolColor,
+                opacity: item.kind === "tool" ? (item.running ? 0.6 : 0.95) : 0.5,
                 stroke: selected ? ink.primary : ink.surface,
                 lineWidth: selected ? 2 : 1,
               },
@@ -669,6 +687,69 @@ export function AgentGanttChart({
       }}
       height={height}
       label="Timeline of the main agent, subagents and their tool calls"
+    />
+  );
+}
+
+/** How much the model thought in each turn, estimated from the stored text. */
+export function ThinkingPerTurnChart({ turns }: { readonly turns: ReadonlyArray<TurnSummary> }) {
+  const build = (dark: boolean): ChartOption => {
+    const ink = inkFor(dark);
+    const color = dark ? "#9085e9" : "#4a3aa7";
+    return {
+      animation: false,
+      grid: { left: 52, right: 16, top: 12, bottom: 40 },
+      tooltip: {
+        trigger: "axis",
+        renderMode: "richText",
+        axisPointer: { type: "shadow" },
+        formatter: (params) => {
+          const entry = Array.isArray(params) ? params[0] : params;
+          const turn = turns[entry?.dataIndex ?? -1];
+          if (!turn) return "";
+          return [
+            `Turn ${turn.index} · ${clock(Date.parse(turn.startedAt))}`,
+            `Thinking: ~${formatTokenCount(Math.ceil(turn.reasoningChars / 4))} tokens`,
+            `Tool calls after it: ${turn.toolCalls}`,
+          ].join("\n");
+        },
+      },
+      xAxis: {
+        type: "category",
+        ...axisStyle(ink),
+        splitLine: { show: false },
+        data: turns.map((turn) => String(turn.index)),
+        name: "turn",
+        nameLocation: "middle",
+        nameGap: 26,
+        nameTextStyle: { color: ink.secondary, fontSize: 11 },
+      },
+      yAxis: {
+        type: "value",
+        ...axisStyle(ink),
+        axisLabel: {
+          color: ink.secondary,
+          fontSize: 11,
+          formatter: (value: number) => formatTokenCount(value),
+        },
+      },
+      series: [
+        {
+          type: "bar",
+          name: "Thinking",
+          barMaxWidth: 28,
+          itemStyle: { color, borderRadius: [4, 4, 0, 0] },
+          data: turns.map((turn) => Math.ceil(turn.reasoningChars / 4)),
+        },
+      ],
+    };
+  };
+  return (
+    <EChart
+      build={build}
+      signature={JSON.stringify(turns.map((turn) => [turn.turnId, turn.reasoningChars]))}
+      height={200}
+      label="Estimated thinking tokens per turn"
     />
   );
 }
