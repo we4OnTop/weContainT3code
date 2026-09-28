@@ -349,6 +349,13 @@ export function renderDockerfile(
     'RUN npm install -g "t3@${T3_VERSION}"',
     "",
     "FROM ${BASE_IMAGE}",
+    "# The t3 package ships a native binary linked against libatomic.",
+    "USER root",
+    runLayer([
+      "apt-get update",
+      "apt-get install -y --no-install-recommends libatomic1",
+      "rm -rf /var/lib/apt/lists/*",
+    ]),
     "USER agent",
   ];
 
