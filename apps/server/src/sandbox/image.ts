@@ -409,7 +409,10 @@ export function renderDockerfile(
     // Isolated uv tool venvs pinned to the base image's own python3:
     // UV_PYTHON_DOWNLOADS=never stops uv fetching an interpreter from the
     // internet. On Python >= 3.14 headroom's requirements exclude litellm.
-    const installs: string[] = ["export UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy"];
+    // A longer timeout and more retries ride out a slow or flaky PyPI.
+    const installs: string[] = [
+      "export UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy UV_HTTP_TIMEOUT=120 UV_HTTP_RETRIES=6",
+    ];
     if (features.headroom) {
       const extras = features.headroomProxy ? "mcp,proxy" : "mcp";
       installs.push(
