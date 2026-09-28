@@ -10,6 +10,7 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as NodeCrypto from "node:crypto";
 import * as NodeNet from "node:net";
+import * as NodeOS from "node:os";
 import * as Stream from "effect/Stream";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
@@ -69,6 +70,13 @@ import {
   parseNetworkLog,
   parsePolicyRules,
 } from "./networkPolicy.ts";
+import {
+  OPENCODE_API_HOST,
+  OPENCODE_NETWORK_RESOURCES,
+  guestOpenCodeAuthJson,
+  openCodePlaceholder,
+  parseOpenCodeAccountKeys,
+} from "./opencodeAuth.ts";
 import {
   SANDBOX_CONFIG_FILE,
   parseProjectSandboxConfig,
@@ -1362,6 +1370,89 @@ export const make = Effect.fn("SandboxManager.make")(function* () {
   });
 
   /**
+   * Signs the guest's OpenCode in with the host's OpenCode Zen / Go keys
+   * without the keys entering the sandbox (see opencodeAuth.ts): the guest
+   * auth.json holds placeholders that the sbx proxy swaps for the real key on
+   * requests to opencode.ai only. Re-applied on every boot, so a rotated host
+   * key follows. Best effort; a failure leaves OpenCode logged out.
+   */
+  const linkOpenCodeLogin = Effect.fn("sandbox.linkOpenCodeLogin")(function* (
+    sandboxId: string,
+    name: string,
+  ) {
+    const hasCli = yield* sbxExec(
+      name,
+      ["sh", "-c", "command -v opencode >/dev/null"],
+      "create",
+      "1 minute",
+    ).pipe(
+      Effect.as(true),
+      Effect.orElseSucceed(() => false),
+    );
+    if (!hasCli) return;
+    const dataHome = process.env.XDG_DATA_HOME || path.join(NodeOS.homedir(), ".local", "share");
+    const keys = parseOpenCodeAccountKeys(
+      yield* fs
+        .readFileString(path.join(dataHome, "opencode", "auth.json"))
+        .pipe(Effect.orElseSucceed(() => "")),
+    );
+    if (keys.length === 0) return;
+
+    const rules = yield* readPolicyRules("create");
+    const missing = missingScopedResources(rules, name, "allow", OPENCODE_NETWORK_RESOURCES);
+    if (missing.length > 0) {
+      yield* addPolicyRule("create", "allow", missing, name);
+    }
+    for (const { provider, key } of keys) {
+      // Error details carry only sbx's output, never the arguments.
+      yield* runChecked("create", {
+        command: "sbx",
+        args: [
+          "secret",
+          "set-custom",
+          "--sandbox",
+          name,
+          "--host",
+          OPENCODE_API_HOST,
+          "--placeholder",
+          openCodePlaceholder(sandboxId, provider),
+          "--value",
+          key,
+        ],
+        timeout: "1 minute",
+      });
+    }
+    const entries = guestOpenCodeAuthJson(
+      sandboxId,
+      keys.map(({ provider }) => provider),
+    );
+    yield* sbxExec(
+      name,
+      [
+        "sh",
+        "-c",
+        // Merges into the guest's auth.json: logins made inside the sandbox
+        // for other providers stay.
+        'f="${XDG_DATA_HOME:-$HOME/.local/share}/opencode/auth.json"; mkdir -p "$(dirname "$f")"; [ -s "$f" ] || printf "{}\\n" > "$f"; t="$(mktemp)"; jq --argjson e "$1" ". + \\$e" "$f" > "$t" && chmod 600 "$t" && mv "$t" "$f"',
+        "sh",
+        entries,
+      ],
+      "create",
+      "1 minute",
+    );
+  });
+
+  const linkOpenCodeLoginBestEffort = (sandboxId: string, name: string) =>
+    linkOpenCodeLogin(sandboxId, name).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("Sandbox could not sign OpenCode in", {
+          name,
+          detail: error.detail,
+        }),
+      ),
+    );
+
+  /**
    * `sync.ignore` lands in the clone's `.git/info/exclude` (never committed);
    * `sync.skipWorktree` freezes tracked files. Values travel as positional
    * arguments, never spliced into the shell script.
@@ -1649,6 +1740,7 @@ export const make = Effect.fn("SandboxManager.make")(function* () {
                   ),
                 ),
               ),
+              Effect.andThen(linkOpenCodeLoginBestEffort(sandboxId, name)),
               Effect.andThen(sbxExec(name, ["start-t3"], "create", "10 minutes")),
             )
             .pipe(
@@ -1979,6 +2071,7 @@ export const make = Effect.fn("SandboxManager.make")(function* () {
         }
         yield* applySyncFilters(name, guestWorkdir, options);
         yield* linkGuestToHostRepository(name, input.projectCwd, guestWorkdir);
+        yield* linkOpenCodeLoginBestEffort(sandboxId, name);
         yield* emit("workspace", "done");
 
         // Only onto a fresh clone: a reused sandbox already holds live gortex
