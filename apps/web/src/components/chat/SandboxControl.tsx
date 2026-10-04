@@ -28,6 +28,7 @@ import {
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { toastManager } from "~/components/ui/toast";
+import { PipelineFlow } from "~/components/sandbox/PipelineFlow";
 import { connectPairing } from "~/connection/onboarding";
 import { useEnvironmentQuery } from "~/state/query";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
@@ -611,7 +612,9 @@ function CreateProgress({
   readonly onRetry: () => void;
   readonly onDismiss: () => void;
 }) {
-  const failed = SANDBOX_CREATE_STEPS.some((step) => progress[step]?.status === "failed");
+  const failedStep = SANDBOX_CREATE_STEPS.find((step) => progress[step]?.status === "failed");
+  const failed = failedStep !== undefined;
+  const failedHint = failedStep === undefined ? null : createFailureHint(failedStep, progress);
   const done = SANDBOX_CREATE_STEPS.filter((step) => {
     const status = progress[step]?.status;
     return status === "done" || status === "skipped";
@@ -639,33 +642,29 @@ function CreateProgress({
           style={{ width: `${(done / SANDBOX_CREATE_STEPS.length) * 100}%` }}
         />
       </div>
-      <ol className="flex flex-col gap-1">
-        {SANDBOX_CREATE_STEPS.map((step) => {
-          const event = progress[step];
-          const status: SandboxCreateStepStatus = event?.status ?? "pending";
-          return (
-            <li key={step} className="flex items-start gap-2 text-sm">
-              <StepIcon status={status} />
-              <div className="flex min-w-0 flex-col">
-                <span
-                  className={
-                    status === "pending"
-                      ? "text-muted-foreground"
-                      : status === "failed"
-                        ? "text-destructive"
-                        : undefined
-                  }
-                >
-                  {SANDBOX_CREATE_STEP_LABELS[step]}
-                </span>
-                {event?.detail ? (
-                  <span className="text-muted-foreground truncate text-xs">{event.detail}</span>
-                ) : null}
-              </div>
-            </li>
-          );
-        })}
-      </ol>
+      <div className="flex max-h-[55vh] justify-center overflow-y-auto">
+        <PipelineFlow
+          ariaLabel="Sandbox setup steps"
+          orientation="vertical"
+          size="compact"
+          stages={SANDBOX_CREATE_STEPS.map((step) => {
+            const status: SandboxCreateStepStatus = progress[step]?.status ?? "pending";
+            return {
+              id: step,
+              cards: [
+                {
+                  id: step,
+                  title: SANDBOX_CREATE_STEP_LABELS[step],
+                  detail: progress[step]?.detail ?? null,
+                  status,
+                  icon: <StepIcon status={status} />,
+                },
+              ],
+            };
+          })}
+        />
+      </div>
+      {failedHint === null ? null : <p className="text-muted-foreground text-xs">{failedHint}</p>}
       {failed ? (
         <div className="flex gap-2">
           <Button size="sm" className="flex-1" disabled={busy} onClick={onRetry}>
@@ -681,12 +680,30 @@ function CreateProgress({
   );
 }
 
+/** What to do about the step that failed, for the failures users can fix themselves. */
+function createFailureHint(step: SandboxCreateStep, progress: ProgressByStep): string | null {
+  const detail = progress[step]?.detail ?? "";
+  if (step === "availability" || /docker was not found|daemon is not running/i.test(detail)) {
+    return "Start Docker Desktop and wait until it reports running, then try again.";
+  }
+  if (/sbx.*not found/i.test(detail)) {
+    return "Install Docker Sandboxes (the sbx CLI) on the machine running T3 Code.";
+  }
+  if (step === "image") {
+    return "The image build failed. The detail above names the failing layer; a tool or setup command in the template is the usual cause.";
+  }
+  if (step === "network") {
+    return "A network rule could not be applied. Check the sandbox's allow and block lists.";
+  }
+  return null;
+}
+
 function StepIcon({ status }: { readonly status: SandboxCreateStepStatus }) {
-  if (status === "running") return <Spinner className="mt-0.5 size-3.5" />;
-  if (status === "done") return <CheckIcon className="mt-0.5 size-3.5 text-primary" />;
-  if (status === "skipped") return <MinusIcon className="text-muted-foreground mt-0.5 size-3.5" />;
-  if (status === "failed") return <XIcon className="text-destructive mt-0.5 size-3.5" />;
-  return <CircleIcon className="text-muted-foreground/40 mt-0.5 size-3.5" />;
+  if (status === "running") return <Spinner className="size-3.5" />;
+  if (status === "done") return <CheckIcon className="size-3.5 text-success" />;
+  if (status === "skipped") return <MinusIcon className="text-muted-foreground size-3.5" />;
+  if (status === "failed") return <XIcon className="text-destructive size-3.5" />;
+  return <CircleIcon className="text-muted-foreground/40 size-3.5" />;
 }
 
 function errorMessage(error: unknown): string {

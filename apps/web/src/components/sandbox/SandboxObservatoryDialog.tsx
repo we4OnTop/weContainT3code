@@ -28,11 +28,13 @@ import { Spinner } from "../ui/spinner";
 import { Switch } from "../ui/switch";
 import { ChatsOverview } from "./ChatsOverview";
 import { SandboxGraphChart } from "./SandboxGraphChart";
+import { SandboxSyncWorkflow } from "./SandboxSyncWorkflow";
 import { buildObservatoryGraph } from "./observatoryGraph";
 
-type Tab = "graph" | "chats" | "network" | "activity" | "commands";
+type Tab = "workflow" | "graph" | "chats" | "network" | "activity" | "commands";
 
 const TABS: ReadonlyArray<readonly [Tab, string]> = [
+  ["workflow", "Workflow"],
   ["graph", "Graph"],
   ["chats", "Chats & usage"],
   ["network", "Network"],
@@ -73,9 +75,10 @@ export function SandboxObservatoryDialog({
   const addRule = useAtomCommand(sandboxEnvironment.policyAddRule, { reportFailure: false });
   const removeRule = useAtomCommand(sandboxEnvironment.policyRemoveRule, { reportFailure: false });
 
-  const [tab, setTab] = useState<Tab>("graph");
+  const [tab, setTab] = useState<Tab>("workflow");
   const [network, setNetwork] = useState<SandboxNetworkOverviewResult | null>(null);
   const [activity, setActivity] = useState<SandboxActivityResult | null>(null);
+  const [activityReadAt, setActivityReadAt] = useState(() => Date.now());
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<PendingRule | null>(null);
@@ -100,6 +103,7 @@ export function SandboxObservatoryDialog({
           failures.push(errorMessage(squashAtomCommandFailure(activityResult)));
         } else {
           setActivity(activityResult.value);
+          setActivityReadAt(Date.now());
         }
         setError(failures.length > 0 ? failures.join("; ") : null);
       }),
@@ -290,6 +294,18 @@ export function SandboxObservatoryDialog({
                   </Button>
                 </div>
               </div>
+            ) : null}
+
+            {tab === "workflow" ? (
+              <SandboxSyncWorkflow
+                environmentId={environmentId}
+                sandboxes={sandboxes.filter(
+                  (sandbox) => sandboxFilter === null || sandbox.name === sandboxFilter,
+                )}
+                activity={activity}
+                now={activityReadAt}
+                onChanged={() => void refresh()}
+              />
             ) : null}
 
             {tab === "graph" ? (

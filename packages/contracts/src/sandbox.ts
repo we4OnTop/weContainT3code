@@ -763,6 +763,13 @@ export const SandboxActivityResult = Schema.Struct({
   /** Newest first. */
   events: Schema.Array(SandboxActivityEvent),
   channels: Schema.Array(SandboxChannelStatus),
+  /**
+   * Whether Docker and the sbx CLI answer right now. Every sandbox action
+   * needs both; absent from servers that predate it.
+   */
+  docker: Schema.optional(
+    Schema.Struct({ available: Schema.Boolean, reason: Schema.NullOr(Schema.String) }),
+  ),
 });
 export type SandboxActivityResult = typeof SandboxActivityResult.Type;
 

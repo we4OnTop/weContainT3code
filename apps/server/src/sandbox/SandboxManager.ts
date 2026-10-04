@@ -891,7 +891,14 @@ export const make = Effect.fn("SandboxManager.make")(function* () {
         }
       }
       const limit = input.limit ?? 500;
+      const docker = yield* availability().pipe(
+        Effect.match({
+          onFailure: (error) => ({ available: false, reason: error.reason }),
+          onSuccess: () => ({ available: true, reason: null }),
+        }),
+      );
       return {
+        docker,
         events: events
           .toSorted((left, right) =>
             right.at === left.at

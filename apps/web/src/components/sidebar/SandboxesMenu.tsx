@@ -8,6 +8,8 @@ import {
   type SandboxTemplateManifest,
 } from "@t3tools/contracts";
 import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
   ContainerIcon,
   DownloadIcon,
   PlusIcon,
@@ -42,6 +44,8 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import { SandboxRemotePushDialog } from "../chat/SandboxRemotePushDialog";
 import { SandboxToolsField } from "./SandboxToolsField";
+import { PipelineFlow } from "../sandbox/PipelineFlow";
+import { buildTemplateFlow, toolCardId } from "../sandbox/templateFlow";
 
 /** Optional template tooling, in the order the editor and the list show it. */
 const TOOLING_FLAGS = [
@@ -633,10 +637,62 @@ function TemplateEditor({
   const blocking = issues.some((issue) => issue.severity === "error");
   const canSave = manifest.id.length > 0 && manifest.name.length > 0 && !blocking && !saving;
 
+  const tools = manifest.tools ?? [];
+  const moveTool = (index: number, by: -1 | 1) => {
+    const next = [...tools];
+    const [moved] = next.splice(index, 1);
+    if (moved === undefined) return;
+    next.splice(index + by, 0, moved);
+    patch({ tools: next });
+  };
+  const buildFlow = buildTemplateFlow(manifest);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <ScrollArea className="flex-1">
         <div className="flex flex-col gap-3 p-3">
+          <section className="flex flex-col gap-1">
+            <span className="text-xs font-medium">Build steps</span>
+            <PipelineFlow
+              ariaLabel="Image build steps of this template"
+              size="compact"
+              stages={buildFlow.stages.map((stage) => ({
+                ...stage,
+                cards: stage.cards.map((card) => {
+                  const index = tools.findIndex((tool) => toolCardId(tool.id) === card.id);
+                  if (index === -1 || tools.length < 2) return card;
+                  return {
+                    ...card,
+                    actions: (
+                      <>
+                        <Button
+                          size="icon-xs"
+                          variant="ghost-muted"
+                          aria-label={`Run ${card.title} earlier`}
+                          disabled={index === 0}
+                          onClick={() => moveTool(index, -1)}
+                        >
+                          <ChevronLeftIcon />
+                        </Button>
+                        <Button
+                          size="icon-xs"
+                          variant="ghost-muted"
+                          aria-label={`Run ${card.title} later`}
+                          disabled={index === tools.length - 1}
+                          onClick={() => moveTool(index, 1)}
+                        >
+                          <ChevronRightIcon />
+                        </Button>
+                      </>
+                    ),
+                  };
+                }),
+              }))}
+            />
+            <span className="text-muted-foreground text-xs">
+              The image is built left to right; tools install in the order shown.
+            </span>
+          </section>
           <label className="flex flex-col gap-1 text-xs font-medium">
             Id
             <Input

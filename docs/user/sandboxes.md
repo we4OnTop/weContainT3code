@@ -81,6 +81,11 @@ below. Three templates ship with T3 Code and cannot be edited or deleted:
 | **Gortex**          | The plain sandbox plus the gortex daemon, tracking the workspace.                                                                                                                                           |
 | **weContain**       | The gortex sandbox plus Docker inside the sandbox, dreamfeed, lateral, openspec, the headroom and serena MCP servers (see _weContain tooling_), and the rtk, context-mode and Ponytail tools (see _Tools_). |
 
+The editor opens with the template's **build steps**: the image is built
+left to right, from the base image through the CLIs and tooling to each tool
+and your setup commands. Tools install in the order shown; the arrows on a
+tool card move it earlier or later.
+
 From the Templates section you can:
 
 - **Duplicate** a built-in template as the starting point for your own.
@@ -308,6 +313,11 @@ Two template switches under **Safeguards**:
 
 **Observatory** in the sandboxes panel shows all sandboxes at once:
 
+- **Workflow** — each sandbox's way home as a flow: Docker → sandbox (and
+  the agent's `t3-sync`) → host branch → git receiver → remote. Every hop
+  shows its last outcome, so a failed sync is red exactly where it broke, and
+  a stopped Docker or a dropped host channel shows up before you try. Sync and
+  push run from the cards they start at.
 - **Graph** — sandboxes around the git receiver they sync into, the remotes
   the receiver's work was pushed to, and the network proxy. Red marks failed
   syncs or pushes, blocked traffic, flagged commands and changed safeguards.
