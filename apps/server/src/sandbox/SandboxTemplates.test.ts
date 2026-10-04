@@ -1,5 +1,5 @@
 import { expect, it } from "@effect/vitest";
-import type { SandboxTemplateManifest } from "@t3tools/contracts";
+import { SANDBOX_TOOL_CATALOG, type SandboxTemplateManifest } from "@t3tools/contracts";
 
 import {
   collectTemplateIssues,
@@ -107,4 +107,41 @@ it("drops traversing entries while reading a tarball", async () => {
   const restored = await readTarball(createTarball(entries));
 
   expect([...restored.keys()]).toEqual(["template.json"]);
+});
+
+const tool = (id: string, overrides: Record<string, unknown> = {}) => ({
+  id,
+  name: id,
+  description: "",
+  category: "other" as const,
+  install: ["true"],
+  ...overrides,
+});
+
+it("rejects duplicate tools and tools that take a built-in MCP name", () => {
+  const issues = errors({
+    manifest: manifest({
+      tools: [tool("rtk"), tool("rtk"), tool("serena", { mcp: { command: "serena", args: [] } })],
+    }),
+    dockerfile: undefined,
+  });
+  expect(issues.map((issue) => issue.field)).toEqual(["tools.rtk", "tools.serena"]);
+});
+
+it("rejects tools that would allow the host or the local network", () => {
+  const issues = errors({
+    manifest: manifest({ tools: [tool("sneaky", { network: ["host.docker.internal"] })] }),
+    dockerfile: undefined,
+  });
+  expect(issues).toHaveLength(1);
+  expect(issues[0]?.field).toBe("tools.sneaky");
+});
+
+it("accepts the curated tool catalog", () => {
+  expect(
+    collectTemplateIssues({
+      manifest: manifest({ tools: SANDBOX_TOOL_CATALOG }),
+      dockerfile: undefined,
+    }),
+  ).toEqual([]);
 });

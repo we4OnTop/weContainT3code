@@ -153,7 +153,7 @@ export const SANDBOX_CLI_INSTALL: Record<
   opencode: {
     label: "OpenCode",
     binary: "opencode",
-    install: ["npm install -g opencode-ai"],
+    install: ["npm install -g @opencode/cli"],
   },
 };
 
@@ -453,6 +453,17 @@ export function renderDockerfile(
     );
   }
 
+  // One block per tool: a failing install names the tool that broke.
+  for (const tool of manifest.tools ?? []) {
+    lines.push("", `# Tool: ${tool.name}${tool.version === undefined ? "" : ` ${tool.version}`}`);
+    for (const [key, value] of Object.entries(tool.env ?? {})) {
+      lines.push(`ENV ${key}=${singleQuote(value)}`);
+    }
+    if (tool.install.length > 0) {
+      lines.push(runLayer(tool.install));
+    }
+  }
+
   if (manifest.setupCommands.length > 0) {
     lines.push("", "# Template setup commands", runLayer(manifest.setupCommands));
   }
@@ -470,6 +481,77 @@ export function renderDockerfile(
 }
 
 const bashBool = (value: boolean) => (value ? "1" : "0");
+
+/** Bash variable holding whether a tool is switched on for this boot. */
+const toolVar = (id: string) => `TOOL_${id.toUpperCase().replaceAll("-", "_")}_ENABLED`;
+
+/** Installed tools default on; a project's `.sandbox-config` may switch one off. */
+function toolFlagLines(manifest: SandboxTemplateManifest): string {
+  return (manifest.tools ?? [])
+    .map((tool) => `${toolVar(tool.id)}=$(feature 1 tools.${tool.id}.enabled true)`)
+    .join("\n");
+}
+
+/** Boot commands of switched-on tools; a failing one warns and the boot goes on. */
+function toolBootLines(manifest: SandboxTemplateManifest): string {
+  return (manifest.tools ?? [])
+    .flatMap((tool) =>
+      (tool.boot ?? []).map(
+        (command) =>
+          `  [ "$${toolVar(tool.id)}" = 1 ] && { bash -c ${singleQuote(command)} || echo ${singleQuote(`WARNING: a boot step of ${tool.name} failed`)} >&2; }`,
+      ),
+    )
+    .join("\n");
+}
+
+/** Claude Code MCP entries for tools that ship an MCP server. */
+function toolMcpLines(manifest: SandboxTemplateManifest): string {
+  return (manifest.tools ?? [])
+    .flatMap((tool) =>
+      tool.mcp === undefined
+        ? []
+        : [
+            `  set_server ${tool.id} "$${toolVar(tool.id)}" ${singleQuote(
+              JSON.stringify({
+                type: "stdio",
+                command: tool.mcp.command,
+                args: tool.mcp.args,
+                env: tool.mcp.env ?? {},
+              }),
+            )}`,
+          ],
+    )
+    .join("\n");
+}
+
+/**
+ * OpenCode entries: MCP servers under `.mcp`, plugins under `.plugins`. A
+ * switched-off tool loses only the plugin names it would have added.
+ */
+function toolOpencodeLines(manifest: SandboxTemplateManifest): string {
+  return (manifest.tools ?? [])
+    .flatMap((tool) => {
+      const enabled = toolVar(tool.id);
+      const lines: string[] = [];
+      if (tool.mcp !== undefined) {
+        const spec = {
+          type: "local",
+          command: [tool.mcp.command, ...tool.mcp.args],
+          ...(tool.mcp.env === undefined ? {} : { environment: tool.mcp.env }),
+        };
+        lines.push(
+          `    tmp="$(mktemp)"; jq --arg n ${tool.id} --argjson s ${singleQuote(JSON.stringify(spec))} --argjson e "$${enabled}" '.mcp //= {} | .mcp[$n] //= $s | .mcp[$n].enabled = ($e == 1)' "$oc" > "$tmp" && mv "$tmp" "$oc"`,
+        );
+      }
+      if ((tool.opencodePlugins ?? []).length > 0) {
+        lines.push(
+          `    tmp="$(mktemp)"; jq --argjson p ${singleQuote(JSON.stringify(tool.opencodePlugins))} --argjson e "$${enabled}" 'if $e == 1 then .plugins = (((.plugins // []) + $p) | unique) else .plugins = ((.plugins // []) - $p) end' "$oc" > "$tmp" && mv "$tmp" "$oc"`,
+        );
+      }
+      return lines;
+    })
+    .join("\n");
+}
 
 /**
  * Guest entrypoint, ported from weContain's `start-t3.sh`: boots a headless t3
@@ -528,6 +610,7 @@ DREAMFEED_ENABLED=$(feature ${bashBool(features.dreamfeed)} dreamfeed.enabled tr
 LATERAL_ENABLED=$(feature ${bashBool(features.lateral)} lateral.enabled true)
 HEADROOM_ENABLED=$(feature ${bashBool(features.headroom)} headroom.enabled true)
 SERENA_ENABLED=$(feature ${bashBool(features.serena)} serena.enabled true)
+${toolFlagLines(manifest)}
 # Writes into the workspace, and the git bridge carries it home: opt-in only.
 OPENSPEC_ENABLED=$(feature ${bashBool(features.openspec)} openspec.enabled false)
 OPENSPEC_TOOLS="$(cfg openspec.tools claude)"
@@ -625,6 +708,7 @@ wire_mcp_servers() (
   lateral_spec="$(jq -cn --arg d "$STATE_DIR/lateral" \\
     '{type:"stdio",command:"lateral",args:["mcp","--data",$d],env:{}}')"
   set_server lateral "$LATERAL_ENABLED" "$lateral_spec"
+${toolMcpLines(manifest)}
 
   # opencode reads ~/.config/opencode/opencode.json when run directly
   # (\`sbx exec -it <box> opencode\`); T3-launched sessions pass their own config.
@@ -643,6 +727,7 @@ wire_mcp_servers() (
       | .mcp.gortex.enabled = ($g == 1) | .mcp.headroom.enabled = ($h == 1)
       | .mcp.serena.enabled = ($s == 1) | .mcp.lateral.enabled = ($l == 1)' \\
       "$oc" > "$tmp" && mv "$tmp" "$oc"
+${toolOpencodeLines(manifest)}
   fi
 )
 
@@ -753,6 +838,7 @@ HINT
     DREAMFEED_WORKSPACE="$WS" dreamfeed init
   fi
   setup_openspec
+${toolBootLines(manifest)}
   rc=0
   wire_agent_hooks || { echo "WARNING: agent hook wiring failed" >&2; rc=1; }
   wire_mcp_servers || { echo "WARNING: MCP wiring failed" >&2; rc=1; }

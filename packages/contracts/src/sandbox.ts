@@ -40,6 +40,70 @@ export const BUILTIN_SANDBOX_TEMPLATE_IDS = ["plain", "gortex", "wecontain"] as 
 export const DEFAULT_SANDBOX_TEMPLATE_ID = "plain";
 
 /**
+ * One host for an `sbx policy` network rule: a lowercase domain (optionally
+ * `*.` / `**.` for subdomains), or an IPv4 address, with an optional port.
+ * At least one dot is required, so catch-alls (`*`, `**`) and bare names such
+ * as `localhost` can never be written from here.
+ */
+export const SANDBOX_NETWORK_RESOURCE_PATTERN =
+  /^(\*{1,2}\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(:[0-9]{1,5})?$/;
+
+export const SandboxNetworkResource = TrimmedNonEmptyString.check(
+  Schema.isPattern(SANDBOX_NETWORK_RESOURCE_PATTERN),
+).annotate({ identifier: "SandboxNetworkResource" });
+export type SandboxNetworkResource = typeof SandboxNetworkResource.Type;
+
+/**
+ * A tool a template adds to the sandbox, as data: how it is installed when the
+ * image is built, what runs on every boot, and how agents reach it. Templates
+ * carry the full definition, so an exported bundle builds the same sandbox
+ * elsewhere. Curated definitions live in SANDBOX_TOOL_CATALOG; a template may
+ * also carry its own.
+ */
+export const SandboxToolModuleId = TrimmedNonEmptyString.check(
+  Schema.isPattern(/^[a-z0-9][a-z0-9-]{1,39}$/),
+).annotate({ identifier: "SandboxToolModuleId" });
+export type SandboxToolModuleId = typeof SandboxToolModuleId.Type;
+
+export const SandboxToolCategory = Schema.Literals([
+  "token-reduction",
+  "code-intelligence",
+  "workflow",
+  "other",
+]);
+export type SandboxToolCategory = typeof SandboxToolCategory.Type;
+
+/** A stdio MCP server, registered for Claude Code and OpenCode on every boot. */
+export const SandboxToolMcpServer = Schema.Struct({
+  command: TrimmedNonEmptyString,
+  args: Schema.Array(Schema.String),
+  env: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+});
+export type SandboxToolMcpServer = typeof SandboxToolMcpServer.Type;
+
+export const SandboxToolModule = Schema.Struct({
+  id: SandboxToolModuleId,
+  name: TrimmedNonEmptyString,
+  description: Schema.String,
+  category: SandboxToolCategory,
+  homepage: Schema.optional(TrimmedNonEmptyString),
+  /** Shown to the user; the install commands decide what is really installed. */
+  version: Schema.optional(TrimmedNonEmptyString),
+  /** Shell commands run as the agent when the image is built, one RUN layer. */
+  install: Schema.Array(Schema.String),
+  /** Shell commands run on every boot before agents start; failures only warn. */
+  boot: Schema.optional(Schema.Array(Schema.String)),
+  /** Environment baked into the image. */
+  env: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  /** Hosts the tool must reach at runtime, allowed for each sandbox built with it. */
+  network: Schema.optional(Schema.Array(SandboxNetworkResource)),
+  mcp: Schema.optional(SandboxToolMcpServer),
+  /** OpenCode 2 plugins (`plugins` in ~/.config/opencode/opencode.json). */
+  opencodePlugins: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+});
+export type SandboxToolModule = typeof SandboxToolModule.Type;
+
+/**
  * The declarative part of a template bundle (`template.json`). The Dockerfile
  * is generated from this unless the bundle ships its own, which lets simple
  * templates stay data and complex ones drop to raw Docker.
@@ -84,6 +148,8 @@ export const SandboxTemplateManifest = Schema.Struct({
   commandLog: Schema.optional(Schema.Boolean),
   /** Passwordless sudo for the agent. Omitted means on (the sbx default). */
   sudo: Schema.optional(Schema.Boolean),
+  /** Tool modules, installed in this order. Omitted means none. */
+  tools: Schema.optional(Schema.Array(SandboxToolModule)),
 });
 export type SandboxTemplateManifest = typeof SandboxTemplateManifest.Type;
 
@@ -106,20 +172,6 @@ export const SandboxTemplate = Schema.Struct({
   updatedAt: Schema.String,
 });
 export type SandboxTemplate = typeof SandboxTemplate.Type;
-
-/**
- * One host for an `sbx policy` network rule: a lowercase domain (optionally
- * `*.` / `**.` for subdomains), or an IPv4 address, with an optional port.
- * At least one dot is required, so catch-alls (`*`, `**`) and bare names such
- * as `localhost` can never be written from here.
- */
-export const SANDBOX_NETWORK_RESOURCE_PATTERN =
-  /^(\*{1,2}\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(:[0-9]{1,5})?$/;
-
-export const SandboxNetworkResource = TrimmedNonEmptyString.check(
-  Schema.isPattern(SANDBOX_NETWORK_RESOURCE_PATTERN),
-).annotate({ identifier: "SandboxNetworkResource" });
-export type SandboxNetworkResource = typeof SandboxNetworkResource.Type;
 
 const PRIVATE_IPV4_PATTERN =
   /^(0|10|127|169\.254|172\.(1[6-9]|2[0-9]|3[01])|192\.168)\.[0-9.]*(:[0-9]+)?$/;

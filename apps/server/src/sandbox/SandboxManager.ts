@@ -2,6 +2,7 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -1115,14 +1116,23 @@ export const make = Effect.fn("SandboxManager.make")(function* () {
       }),
     ).pipe(
       Effect.catchCause((cause) => Effect.logWarning("Sandbox channel failed", { name, cause })),
-      Effect.ensuring(
+      Effect.onExit((exit) =>
         Effect.gen(function* () {
           const current = channelStatus.get(sandboxId);
           if (current?.connected === true) {
             channelStatus.set(sandboxId, { ...current, connected: false });
+            // Interrupted means T3 Code itself ended the session (app quit,
+            // sandbox stopped); only a session that dropped on its own is a fault.
             yield* recordActivity(
               { sandboxId, name },
-              { kind: "channel", source: "host", ok: false, summary: "Host channel closed" },
+              Exit.hasInterrupts(exit)
+                ? {
+                    kind: "channel",
+                    source: "host",
+                    ok: true,
+                    summary: "Host channel stopped by T3 Code",
+                  }
+                : { kind: "channel", source: "host", ok: false, summary: "Host channel closed" },
             );
           }
         }),
@@ -2022,7 +2032,19 @@ export const make = Effect.fn("SandboxManager.make")(function* () {
 
         // Re-applied on every open, adding only what is missing.
         yield* emit("network", "running");
-        const networkDetail = yield* applyNetworkRules(name, options);
+        // Hosts the template's tools need at runtime join this sandbox's allow list.
+        const toolHosts = (template.template.manifest.tools ?? []).flatMap(
+          (tool) => tool.network ?? [],
+        );
+        const networkDetail = yield* applyNetworkRules(
+          name,
+          toolHosts.length === 0
+            ? options
+            : {
+                ...options,
+                allowHosts: [...new Set([...(options.allowHosts ?? []), ...toolHosts])],
+              },
+        );
         yield* emit(
           "network",
           networkDetail === null ? "skipped" : "done",

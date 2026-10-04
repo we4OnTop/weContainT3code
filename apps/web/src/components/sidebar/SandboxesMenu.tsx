@@ -41,6 +41,7 @@ import { Textarea } from "../ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import { SandboxRemotePushDialog } from "../chat/SandboxRemotePushDialog";
+import { SandboxToolsField } from "./SandboxToolsField";
 
 /** Optional template tooling, in the order the editor and the list show it. */
 const TOOLING_FLAGS = [
@@ -494,6 +495,9 @@ function TemplatesSection({ environmentId }: { readonly environmentId: Environme
               {TOOLING_FLAGS.filter((flag) => template.manifest[flag.key] === true).map((flag) => (
                 <span key={flag.key}>· {flag.label}</span>
               ))}
+              {(template.manifest.tools ?? []).map((tool) => (
+                <span key={`tool:${tool.id}`}>· {tool.name}</span>
+              ))}
               {template.manifest.commandLog === true ? <span>· command log</span> : null}
               {template.manifest.sudo === false ? <span>· no sudo</span> : null}
               {template.customDockerfile ? <span>· custom Dockerfile</span> : null}
@@ -725,6 +729,17 @@ function TemplateEditor({
               </label>
             ))}
           </fieldset>
+
+          <SandboxToolsField
+            tools={manifest.tools ?? []}
+            onChange={(tools) => {
+              const { tools: _previous, ...rest } = manifest;
+              onDraftChange({
+                ...draft,
+                manifest: tools.length === 0 ? rest : { ...rest, tools },
+              });
+            }}
+          />
 
           <fieldset className="flex flex-col gap-1.5">
             <legend className="text-xs font-medium">Safeguards</legend>

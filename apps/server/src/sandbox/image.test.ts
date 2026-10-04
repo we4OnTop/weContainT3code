@@ -1,6 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off -- the syntax check pipes rendered scripts through a real bash.
 import { expect, it } from "@effect/vitest";
-import type { SandboxTemplateManifest } from "@t3tools/contracts";
+import { SANDBOX_TOOL_CATALOG, type SandboxTemplateManifest } from "@t3tools/contracts";
 import * as NodeChildProcess from "node:child_process";
 
 import {
@@ -39,7 +39,7 @@ it("installs only the provider CLIs the template selects", () => {
   const dockerfile = renderDockerfile(manifest({ clis: ["codex", "opencode"] }));
 
   expect(dockerfile).toContain("npm install -g @openai/codex");
-  expect(dockerfile).toContain("npm install -g opencode-ai");
+  expect(dockerfile).toContain("npm install -g @opencode/cli");
   expect(dockerfile).not.toContain("@anthropic-ai/claude-code");
   expect(dockerfile).not.toContain("x.ai/cli");
 });
@@ -53,7 +53,7 @@ it("installs every supported CLI when the template asks for all of them", () => 
   expect(dockerfile).toContain("npm install -g @anthropic-ai/claude-code");
   expect(dockerfile).toContain("curl https://cursor.com/install -fsS | bash");
   expect(dockerfile).toContain("curl -fsSL https://x.ai/cli/install.sh | bash");
-  expect(dockerfile).toContain("npm install -g opencode-ai");
+  expect(dockerfile).toContain("npm install -g @opencode/cli");
 });
 
 it("links cursor-agent so the name T3 Code looks for exists", () => {
@@ -79,7 +79,7 @@ it("installs each CLI in its own layer so a failure names the CLI", () => {
   const dockerfile = renderDockerfile(manifest({ clis: ["codex", "opencode"] }));
 
   expect(dockerfile).toContain("RUN npm install -g @openai/codex");
-  expect(dockerfile).toContain("RUN npm install -g opencode-ai");
+  expect(dockerfile).toContain("RUN npm install -g @opencode/cli");
 });
 
 it("omits gortex entirely from a plain template", () => {
@@ -395,4 +395,64 @@ it("sanitizes versions Docker tags reject", () => {
   expect(
     sandboxImageTag({ templateId: "plain", version: "1.0.0+build", contentHash: "c".repeat(64) }),
   ).toBe("t3-sandbox:plain-v1.0.0-build-cccccccccccc");
+});
+
+const customTool = {
+  id: "my-mcp",
+  name: "My MCP",
+  description: "",
+  category: "other" as const,
+  install: ["npm install -g my-mcp@1.2.3"],
+  boot: ["my-mcp warm-up"],
+  env: { MY_MCP_MODE: "lean" },
+  mcp: { command: "my-mcp", args: ["serve", "--stdio"] },
+  opencodePlugins: ["my-mcp-opencode"],
+};
+
+it("installs each tool module in its own layer before the template setup commands", () => {
+  const dockerfile = renderDockerfile(
+    manifest({ tools: [customTool], setupCommands: ["echo setup"] }),
+  );
+  const tool = dockerfile.indexOf("# Tool: My MCP");
+  expect(tool).toBeGreaterThan(-1);
+  expect(dockerfile).toContain("ENV MY_MCP_MODE='lean'");
+  expect(dockerfile).toContain("RUN npm install -g my-mcp@1.2.3");
+  expect(tool).toBeLessThan(dockerfile.indexOf("# Template setup commands"));
+});
+
+it("registers a tool's MCP server and OpenCode plugins behind its own switch", () => {
+  const script = renderStartScript(manifest({ tools: [customTool] }));
+  expect(script).toContain("TOOL_MY_MCP_ENABLED=$(feature 1 tools.my-mcp.enabled true)");
+  expect(script).toContain(
+    `set_server my-mcp "$TOOL_MY_MCP_ENABLED" '{"type":"stdio","command":"my-mcp","args":["serve","--stdio"],"env":{}}'`,
+  );
+  expect(script).toContain(`--argjson p '["my-mcp-opencode"]'`);
+  expect(script).toContain(`[ "$TOOL_MY_MCP_ENABLED" = 1 ] && { bash -c 'my-mcp warm-up'`);
+});
+
+it.skipIf(!hasBash())("renders a start script with tool modules that bash can parse", () => {
+  const result = NodeChildProcess.spawnSync("bash", ["-n"], {
+    input: renderStartScript(
+      manifest({
+        tools: [
+          ...SANDBOX_TOOL_CATALOG,
+          { ...customTool, boot: ["echo 'quoted' \"twice\" $HOME"] },
+        ],
+      }),
+    ),
+    encoding: "utf8",
+  });
+  expect(result.stderr).toBe("");
+  expect(result.status).toBe(0);
+});
+
+it.skipIf(!hasBash())("renders catalog install layers bash can parse", () => {
+  for (const tool of SANDBOX_TOOL_CATALOG) {
+    const result = NodeChildProcess.spawnSync("bash", ["-n"], {
+      input: tool.install.join(" && "),
+      encoding: "utf8",
+    });
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+  }
 });

@@ -38,6 +38,8 @@ import {
   type SandboxTemplateListResult,
   type SandboxTemplateSaveInput,
   type SandboxTemplateValidateResult,
+  SANDBOX_TOOL_CATALOG,
+  sandboxNetworkResourceRisk,
 } from "@t3tools/contracts";
 
 import * as ServerConfigModule from "../config.ts";
@@ -143,7 +145,7 @@ const BUILTIN_MANIFESTS: ReadonlyArray<SandboxTemplateManifest> = [
     id: "wecontain",
     name: "weContain",
     description:
-      "The gortex sandbox plus weContain's agent tooling: a private dockerd, dreamfeed repo-change feed, lateral goal loops, openspec, the headroom and serena MCP servers, and a command log streamed to the host. The agent has no sudo.",
+      "The gortex sandbox plus weContain's agent tooling: a private dockerd, dreamfeed repo-change feed, lateral goal loops, openspec, the headroom and serena MCP servers, the rtk, context-mode and Ponytail token savers, and a command log streamed to the host. The agent has no sudo.",
     baseImage: SANDBOX_DOCKER_BASE_IMAGE,
     clis: SANDBOX_CLI_IDS,
     gortex: true,
@@ -157,8 +159,12 @@ const BUILTIN_MANIFESTS: ReadonlyArray<SandboxTemplateManifest> = [
     serena: true,
     commandLog: true,
     sudo: false,
+    tools: SANDBOX_TOOL_CATALOG,
   },
 ];
+
+/** MCP server names the start script already writes for built-in tooling. */
+const RESERVED_MCP_NAMES = new Set(["gortex", "headroom", "serena", "lateral"]);
 
 const isBuiltin = (templateId: string): boolean =>
   (BUILTIN_SANDBOX_TEMPLATE_IDS as ReadonlyArray<string>).includes(templateId);
@@ -247,6 +253,50 @@ export function collectTemplateIssues(input: {
   for (const pattern of manifest.gortexExclude ?? []) {
     if (pattern.trim().length === 0 || /[\n\r]/.test(pattern)) {
       error("gortexExclude", "gortex exclude patterns must be single, non-empty lines.");
+    }
+  }
+
+  const seenTools = new Set<string>();
+  for (const tool of manifest.tools ?? []) {
+    const field = `tools.${tool.id}`;
+    if (seenTools.has(tool.id)) {
+      error(field, `Duplicate tool: ${tool.id}.`);
+    }
+    seenTools.add(tool.id);
+    if (tool.mcp !== undefined && RESERVED_MCP_NAMES.has(tool.id)) {
+      error(field, `The MCP server name ${tool.id} is taken by built-in tooling; pick another id.`);
+    }
+    for (const [kind, commands] of [
+      ["install", tool.install],
+      ["boot", tool.boot ?? []],
+    ] as const) {
+      commands.forEach((command, index) => {
+        if (command.trim().length === 0 || /[\n\r]/.test(command)) {
+          error(
+            field,
+            `${tool.name}: ${kind} command ${index + 1} must be a single, non-empty line.`,
+          );
+        }
+      });
+    }
+    for (const key of Object.keys({ ...tool.env, ...tool.mcp?.env })) {
+      if (!ENV_KEY_PATTERN.test(key)) {
+        error(field, `${tool.name}: invalid environment variable name ${key}.`);
+      }
+    }
+    for (const resource of tool.network ?? []) {
+      const risk = sandboxNetworkResourceRisk(resource);
+      if (risk !== null) {
+        error(field, `${tool.name}: ${resource} is ${risk}; tools cannot allow it.`);
+      }
+    }
+    if (
+      tool.install.length === 0 &&
+      tool.mcp === undefined &&
+      (tool.opencodePlugins ?? []).length === 0 &&
+      (tool.boot ?? []).length === 0
+    ) {
+      warn(field, `${tool.name} installs and registers nothing.`);
     }
   }
 

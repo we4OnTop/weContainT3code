@@ -12,7 +12,7 @@ paired back to your app as a remote environment.
 - The project must be a git repository with at least one commit.
 
 The first time you open a sandbox, T3 Code builds a sandbox image for you.
-That image contains Codex, Claude Code, Cursor, Grok Build, OpenCode, and a
+That image contains Codex, Claude Code, Cursor, Grok Build, OpenCode 2, and a
 T3 Code server whose version **always matches the version of the T3 Code app
 you are running** — the version is baked in at build time, so you never hit
 server/client skew against a sandbox. Whichever provider you pick for a
@@ -75,11 +75,11 @@ provider CLIs to install, whether to run the gortex code-intelligence daemon,
 extra environment variables, extra setup commands, and the weContain tooling
 below. Three templates ship with T3 Code and cannot be edited or deleted:
 
-| Template            | Contents                                                                                                                                            |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Plain** (default) | Every provider CLI and the matching T3 Code server. Smallest and fastest to build.                                                                  |
-| **Gortex**          | The plain sandbox plus the gortex daemon, tracking the workspace.                                                                                   |
-| **weContain**       | The gortex sandbox plus Docker inside the sandbox, dreamfeed, lateral, openspec, and the headroom and serena MCP servers (see _weContain tooling_). |
+| Template            | Contents                                                                                                                                                                                                    |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Plain** (default) | Every provider CLI and the matching T3 Code server. Smallest and fastest to build.                                                                                                                          |
+| **Gortex**          | The plain sandbox plus the gortex daemon, tracking the workspace.                                                                                                                                           |
+| **weContain**       | The gortex sandbox plus Docker inside the sandbox, dreamfeed, lateral, openspec, the headroom and serena MCP servers (see _weContain tooling_), and the rtk, context-mode and Ponytail tools (see _Tools_). |
 
 From the Templates section you can:
 
@@ -120,6 +120,47 @@ turns them all on.
 The MCP servers are registered for Claude Code (`~/.claude.json`) and for
 OpenCode (`~/.config/opencode/opencode.json`) every time the sandbox boots.
 
+## Tools
+
+The **Tools** section of the template editor adds tools to the image. Each
+one is installed when the image is built and wired up for the agents on every
+boot: MCP servers for Claude Code and OpenCode, plugins for Claude Code,
+Codex and OpenCode, and the hosts the tool needs at runtime, which are
+allowed for every sandbox built from the template.
+
+Three curated tools cut token usage:
+
+| Tool                                                   | What it does                                                                                           |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| [rtk](https://github.com/rtk-ai/rtk)                   | Rewrites the agent's shell commands so their output is compact. Only shell commands go through it.     |
+| [context-mode](https://github.com/mksglu/context-mode) | Keeps large tool output in a local index and gives the agent short references instead of the raw data. |
+| [Ponytail](https://github.com/DietrichGebert/ponytail) | Makes the agent write the least code that solves the problem.                                          |
+
+rtk, context-mode and headroom all shrink tool output. If an agent behaves
+oddly with all three on, switch one off per project (below) to find out which.
+
+Switching a curated tool on copies its definition into the template, so a
+later T3 Code update never changes the image of an existing template. To add
+any other tool, paste its definition as JSON under **Add your own tool**:
+
+```json
+{
+  "id": "my-tool",
+  "name": "My tool",
+  "description": "What it does",
+  "category": "other",
+  "install": ["npm install -g my-tool@1.0.0"],
+  "boot": ["my-tool warm-up"],
+  "network": ["api.my-tool.dev"],
+  "mcp": { "command": "my-tool", "args": ["mcp"] },
+  "opencodePlugins": ["my-tool-opencode"]
+}
+```
+
+`install` runs as the agent when the image is built, `boot` on every start
+(a failing boot step only warns). Hosts in `network` that reach your machine
+or local network are refused.
+
 ### Per-project `.sandbox-config`
 
 A project can commit a `.sandbox-config` next to its code. The template decides
@@ -136,11 +177,12 @@ the sandbox is created:
   "lateral": { "enabled": true },
   "openspec": { "enabled": true, "tools": "claude" },
   "headroom": { "enabled": true, "proxy": false, "port": 8787 },
-  "serena": { "enabled": true }
+  "serena": { "enabled": true },
+  "tools": { "context-mode": { "enabled": false } }
 }
 ```
 
-Installed tooling defaults to on and can be switched off here; openspec
+Installed tooling and tools default to on and can be switched off here; openspec
 scaffolding and the headroom proxy default to off and are switched on here.
 
 ## Create options
