@@ -6,6 +6,7 @@ import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -117,6 +118,16 @@ const GORTEX_INDEX_WAIT_ATTEMPTS = 180;
 /** git's well-known empty tree, the diff base for work with no history before it. */
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const KEEPALIVE_RETRY_DELAY = "10 seconds";
+/** Failed revives in a row before a sandbox is marked broken instead of retried forever. */
+const KEEPALIVE_MAX_FAILED_REVIVES = 5;
+/**
+ * Host ports handed out to sandboxes, shared by every T3 instance on this
+ * machine (installed app and dev builds keep separate sandbox records but one
+ * base dir). sbx keeps a stopped sandbox's port and rebinds it on start, yet
+ * `sbx ls` does not show it, so without this two instances hand out the same
+ * port and whichever sandbox starts second cannot.
+ */
+const PORT_LEASES_FILE = "port-leases.json";
 /** Upper bound for a saved gortex index copied out of a sandbox. */
 const GORTEX_CACHE_MAX_BYTES = 4 * 1024 * 1024 * 1024;
 /** A `.sandbox-config` is a few hundred bytes; anything this big is not one. */
@@ -658,20 +669,106 @@ export const make = Effect.fn("SandboxManager.make")(function* () {
         }),
     );
 
-  const allocateHostPort = Effect.fn("sandbox.allocateHostPort")(function* () {
-    const records = yield* readRecords();
-    const takenPorts = new Set(
-      records.flatMap((record) => (record.hostPort === null ? [] : [record.hostPort])),
+  const portLeasesPath = path.join(config.baseDir, "sandboxes", PORT_LEASES_FILE);
+
+  const readPortLeases = fs.readFileString(portLeasesPath).pipe(
+    Effect.map(parsePortLeases),
+    Effect.orElseSucceed((): Record<string, string> => ({})),
+  );
+
+  const leasePort = (port: number, name: string) =>
+    Effect.gen(function* () {
+      const leases = yield* readPortLeases;
+      if (leases[String(port)] === name) return;
+      yield* fs.makeDirectory(path.dirname(portLeasesPath), { recursive: true });
+      yield* fs.writeFileString(
+        portLeasesPath,
+        yield* encodePortLeases({ ...leases, [String(port)]: name }),
+      );
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Could not record the sandbox port lease", { port, name, cause }),
+      ),
     );
+
+  const listSbxSandboxes = runChecked("create", {
+    command: "sbx",
+    args: ["ls", "--json"],
+    timeout: "30 seconds",
+  }).pipe(
+    Effect.map(parseSbxSandboxes),
+    Effect.orElseSucceed(() => new Map<string, SbxSandboxState>()),
+  );
+
+  /**
+   * A port no sandbox of any T3 instance holds: not in this instance's records,
+   * not bound by a running sandbox, and not leased to a sandbox that still
+   * exists (a stopped one gets its port back on start).
+   */
+  const allocateHostPort = Effect.fn("sandbox.allocateHostPort")(function* (name: string) {
+    const records = yield* readRecords();
+    const sbx = yield* listSbxSandboxes;
+    const leases = yield* readPortLeases;
+    const takenPorts = new Set([
+      ...records.flatMap((record) =>
+        record.hostPort === null || record.name === name ? [] : [record.hostPort],
+      ),
+      ...[...sbx.values()].flatMap((state) => state.hostPorts),
+      ...Object.entries(leases)
+        .filter(([, owner]) => owner !== name && sbx.has(owner))
+        .map(([port]) => Number(port)),
+    ]);
     for (let port = HOST_PORT_RANGE_START; port <= HOST_PORT_RANGE_END; port++) {
       if (takenPorts.has(port)) {
         continue;
       }
       if (yield* probePortFree(port)) {
+        yield* leasePort(port, name);
         return port;
       }
     }
     return yield* commandError("create", "no free host port in the sandbox port range");
+  });
+
+  /**
+   * Before a stopped sandbox starts again: if something else took its host
+   * port meanwhile (usually a sandbox of another T3 instance), move it to a
+   * free one. Otherwise sbx fails the start with "port not available" and the
+   * sandbox never comes back. The pairing link changes with the port.
+   */
+  const reclaimHostPort = Effect.fn("sandbox.reclaimHostPort")(function* (
+    sandboxId: string,
+    name: string,
+  ) {
+    const record = yield* getRecord(sandboxId).pipe(Effect.orElseSucceed(() => null));
+    if (record === null || record.hostPort === null) return;
+    const oldPort = record.hostPort;
+    const state = (yield* listSbxSandboxes).get(name);
+    if (state === undefined || state.hostPorts.includes(oldPort)) return;
+    if (yield* probePortFree(oldPort)) {
+      yield* leasePort(oldPort, name);
+      return;
+    }
+    yield* runUnchecked({
+      command: "sbx",
+      args: ["ports", name, "--unpublish", `127.0.0.1:${oldPort}:${GUEST_T3_PORT}`],
+      timeout: "1 minute",
+    });
+    const newPort = yield* allocateHostPort(name);
+    // Publishing starts the stopped sandbox with the new binding.
+    yield* runChecked("create", {
+      command: "sbx",
+      args: ["ports", name, "--publish", `127.0.0.1:${newPort}:${GUEST_T3_PORT}`],
+      timeout: "2 minutes",
+    });
+    const message = `Host port ${String(oldPort)} was taken by another program, so this sandbox moved to ${String(newPort)}. Copy a new pairing link to reconnect.`;
+    yield* updateRecord(sandboxId, (current) => ({
+      ...current,
+      hostPort: newPort,
+      pairingUrl: null,
+      message,
+    }));
+    yield* Effect.logWarning("Sandbox host port moved", { name, oldPort, newPort });
   });
 
   /** Readiness is "the guest t3 server answers its environment probe". */
@@ -1742,32 +1839,41 @@ export const make = Effect.fn("SandboxManager.make")(function* () {
   const superviseSandbox = (sandboxId: string, name: string, bootFirst: boolean) =>
     Effect.gen(function* () {
       let boot = bootFirst;
+      let failedRevives = 0;
       for (;;) {
         if (boot) {
-          yield* hardenGuest(name)
-            .pipe(
-              // Sandboxes from before the upstream link get it on their next boot.
-              Effect.andThen(
-                getRecord(sandboxId).pipe(
-                  Effect.orElseSucceed(() => null),
-                  Effect.flatMap((record) =>
-                    record?.workspaceDir
-                      ? linkGuestToHostRepository(name, record.projectCwd, record.workspaceDir)
-                      : Effect.void,
-                  ),
+          const revived = yield* reclaimHostPort(sandboxId, name).pipe(
+            Effect.andThen(hardenGuest(name)),
+            // Sandboxes from before the upstream link get it on their next boot.
+            Effect.andThen(
+              getRecord(sandboxId).pipe(
+                Effect.orElseSucceed(() => null),
+                Effect.flatMap((record) =>
+                  record?.workspaceDir
+                    ? linkGuestToHostRepository(name, record.projectCwd, record.workspaceDir)
+                    : Effect.void,
                 ),
               ),
-              Effect.andThen(linkOpenCodeLoginBestEffort(sandboxId, name)),
-              Effect.andThen(sbxExec(name, ["start-t3"], "create", "10 minutes")),
-            )
-            .pipe(
-              Effect.catch((error) =>
-                Effect.logWarning("Sandbox revive failed; retrying", {
-                  name,
-                  detail: error.detail,
-                }),
-              ),
-            );
+            ),
+            Effect.andThen(linkOpenCodeLoginBestEffort(sandboxId, name)),
+            Effect.andThen(sbxExec(name, ["start-t3"], "create", "10 minutes")),
+            Effect.as(null),
+            Effect.catch((error) =>
+              Effect.logWarning("Sandbox revive failed; retrying", {
+                name,
+                detail: error.message,
+              }).pipe(Effect.as(error.message)),
+            ),
+          );
+          failedRevives = revived === null ? 0 : failedRevives + 1;
+          if (revived !== null && failedRevives >= KEEPALIVE_MAX_FAILED_REVIVES) {
+            yield* updateRecord(sandboxId, (current) => ({
+              ...current,
+              status: "error",
+              message: `The sandbox could not be started ${String(failedRevives)} times in a row: ${revived}`,
+            })).pipe(Effect.ignore);
+            return;
+          }
         }
         boot = true;
         // Blocks for as long as the VM lives. Ending it lets sbx stop the VM.
@@ -2123,7 +2229,8 @@ export const make = Effect.fn("SandboxManager.make")(function* () {
         }
 
         yield* emit("ports", "running");
-        const hostPort = existing?.hostPort ?? (yield* allocateHostPort());
+        const hostPort = existing?.hostPort ?? (yield* allocateHostPort(name));
+        yield* leasePort(hostPort, name);
         yield* Ref.update(started, (current) =>
           current === null ? current : { ...current, hostPort },
         );
@@ -3242,3 +3349,50 @@ export function guestUpstreamUrl(remoteVerbose: string): string | null {
 /** `host.tld/owner/repo[/...]`: a dotted host and at least two path segments. */
 const HOSTED_REPOSITORY_KEY =
   /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+(?:\/[a-z0-9._~-]+){2,}$/;
+
+export interface SbxSandboxState {
+  readonly status: string;
+  /** Host ports bound right now; a stopped sandbox reports none. */
+  readonly hostPorts: ReadonlyArray<number>;
+}
+
+const SbxListJson = Schema.fromJsonString(
+  Schema.Struct({
+    sandboxes: Schema.Array(
+      Schema.Struct({
+        name: Schema.String,
+        status: Schema.String,
+        ports: Schema.optional(Schema.Array(Schema.Struct({ host_port: Schema.Number }))),
+      }),
+    ),
+  }),
+);
+const decodeSbxList = Schema.decodeUnknownOption(SbxListJson);
+
+/** `sbx ls --json`, by sandbox name. Unreadable output yields no sandboxes. */
+export function parseSbxSandboxes(output: string): Map<string, SbxSandboxState> {
+  const decoded = decodeSbxList(output);
+  if (Option.isNone(decoded)) return new Map();
+  return new Map(
+    decoded.value.sandboxes.map((sandbox) => [
+      sandbox.name,
+      {
+        status: sandbox.status,
+        hostPorts: (sandbox.ports ?? []).map((port) => port.host_port),
+      },
+    ]),
+  );
+}
+
+/** The shared port lease file: port number → sandbox name. */
+const PortLeasesJson = Schema.fromJsonString(Schema.Record(Schema.String, Schema.String));
+const decodePortLeases = Schema.decodeUnknownOption(PortLeasesJson);
+export const encodePortLeases = Schema.encodeEffect(PortLeasesJson);
+
+export function parsePortLeases(raw: string): Record<string, string> {
+  const decoded = decodePortLeases(raw);
+  if (Option.isNone(decoded)) return {};
+  return Object.fromEntries(
+    Object.entries(decoded.value).filter(([port]) => /^[0-9]+$/.test(port)),
+  );
+}

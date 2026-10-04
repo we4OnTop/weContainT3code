@@ -4,6 +4,8 @@ import { ProjectId, ThreadId, type SandboxInfo } from "@t3tools/contracts";
 import {
   PROJECT_FOLDER_PATTERN,
   guestUpstreamUrl,
+  parsePortLeases,
+  parseSbxSandboxes,
   buildFailureRecord,
   migrateLegacyRecords,
   pickPairingUrl,
@@ -191,4 +193,36 @@ it("gives the guest only the host repository's identity as upstream", () => {
   expect(guestUpstreamUrl("origin\tC:/Users/me/repo (fetch)\n")).toBeNull();
   expect(guestUpstreamUrl("origin\tgit://127.0.0.1:9418/t3code (fetch)\n")).toBeNull();
   expect(guestUpstreamUrl("")).toBeNull();
+});
+
+it("reads bound host ports per sandbox from sbx ls --json", () => {
+  const sandboxes = parseSbxSandboxes(
+    JSON.stringify({
+      sandboxes: [
+        { name: "t3-a-1", id: "x", agent: "claude", status: "stopped", workspaces: [] },
+        {
+          name: "t3-b-2",
+          status: "running",
+          ports: [
+            { host_ip: "127.0.0.1", host_port: 3774, sandbox_port: 3773, protocol: "tcp4" },
+            { host_ip: "127.0.0.1", host_port: 60013, sandbox_port: 9418, protocol: "tcp4" },
+          ],
+        },
+      ],
+    }),
+  );
+  // a stopped sandbox holds no binding even though its port comes back on start
+  expect(sandboxes.get("t3-a-1")).toEqual({ status: "stopped", hostPorts: [] });
+  expect(sandboxes.get("t3-b-2")).toEqual({ status: "running", hostPorts: [3774, 60013] });
+  expect(parseSbxSandboxes("sbx: daemon not running").size).toBe(0);
+  expect(parseSbxSandboxes("").size).toBe(0);
+});
+
+it("keeps only numeric ports from the shared port lease file", () => {
+  expect(parsePortLeases('{"3774":"t3-b-2","3775":"t3-a-1","x":"t3-c"}')).toEqual({
+    "3774": "t3-b-2",
+    "3775": "t3-a-1",
+  });
+  expect(parsePortLeases('{"3774":7}')).toEqual({});
+  expect(parsePortLeases("not json")).toEqual({});
 });
