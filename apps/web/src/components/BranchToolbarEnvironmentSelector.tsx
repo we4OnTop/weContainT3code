@@ -1,8 +1,16 @@
+import { ThreadDetailsSelectControl } from "./chat/ThreadDetailsControl";
+import { ComposerContextLabel } from "./ComposerContextLabel";
+import { Tooltip, TooltipTrigger, TooltipPopup } from "./ui/tooltip";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { ContainerIcon, ScaleIcon } from "lucide-react";
 import { memo, useMemo } from "react";
 
 import type { EnvironmentOption } from "./BranchToolbar.logic";
+import { cn } from "../lib/utils";
+import {
+  THREAD_DETAILS_PANEL_ICON_CLASS,
+  THREAD_DETAILS_PANEL_LOCKED_ROW_CLASS,
+} from "./chat/threadDetailsPanelStyles";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { sandboxProjectName, useHostSandboxesByEnvironmentId } from "~/state/sandbox";
 import { useComposerMenuProps } from "./chat/composerEventScope";
@@ -12,10 +20,8 @@ import {
   SelectGroupLabel,
   SelectItem,
   SelectPopup,
-  SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 interface BranchToolbarEnvironmentSelectorProps {
   autoEnvironmentLabel?: string | undefined;
@@ -23,9 +29,8 @@ interface BranchToolbarEnvironmentSelectorProps {
   envLocked: boolean;
   environmentId: EnvironmentId;
   availableEnvironments: readonly EnvironmentOption[];
-  // Absent when there is only one environment to show: the indicator still
-  // renders (as a static label) so remote projects are always identifiable.
   onEnvironmentChange?: (environmentId: EnvironmentId) => void;
+  displayMode?: "toolbar" | "panel";
 }
 
 export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvironmentSelector({
@@ -35,6 +40,7 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
   environmentId,
   availableEnvironments,
   onEnvironmentChange,
+  displayMode = "toolbar",
 }: BranchToolbarEnvironmentSelectorProps) {
   const composerFloatingLayerProps = useComposerMenuProps();
   // Sandboxes are marked from the host's own records, never from what a
@@ -74,26 +80,26 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
   // a shorter label would drag the seam out of line whenever this label is the
   // only thing in the strip.
   if (envLocked || onEnvironmentChange === undefined) {
+    const lockedRow = (
+      <span
+        className={cn(
+          "inline-flex h-7 min-w-0 max-w-full items-center gap-1 border border-transparent px-1.75 font-normal text-muted-foreground/70 text-xs sm:h-6",
+          displayMode === "panel" && THREAD_DETAILS_PANEL_LOCKED_ROW_CLASS,
+        )}
+        data-composer-context-control
+      >
+        {iconOf(
+          activeEnvironment,
+          displayMode === "panel" ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0",
+        )}
+        <ComposerContextLabel displayMode={displayMode}>
+          {activeEnvironment === null ? "Run on" : labelOf(activeEnvironment)}
+        </ComposerContextLabel>
+      </span>
+    );
     return (
       <Tooltip>
-        <TooltipTrigger
-          render={<span />}
-          className="inline-flex h-7 min-w-0 max-w-full items-center gap-1 border border-transparent px-1.75 font-normal text-muted-foreground/70 text-xs sm:h-6"
-          data-composer-context-control
-        >
-          {iconOf(activeEnvironment, "size-3 shrink-0")}
-          <span
-            data-composer-label
-            className="min-w-0 max-w-[240px] group-data-[compact]/composer-context:max-w-0"
-          >
-            <span
-              data-composer-label-motion
-              className="block w-full min-w-0 max-w-[240px] truncate transition-opacity duration-180 ease-drawer group-data-[compact]/composer-context:opacity-0 motion-reduce:transition-none"
-            >
-              {activeEnvironment === null ? "Run on" : labelOf(activeEnvironment)}
-            </span>
-          </span>
-        </TooltipTrigger>
+        <TooltipTrigger render={lockedRow} />
         <TooltipPopup>
           {activeEnvironment === null ? "Run on" : labelOf(activeEnvironment)}
         </TooltipPopup>
@@ -113,9 +119,8 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
       <Tooltip>
         <TooltipTrigger
           render={
-            <SelectTrigger
-              variant="ghost"
-              size="xs"
+            <ThreadDetailsSelectControl
+              panel={displayMode === "panel"}
               className="min-w-0 max-w-full"
               aria-label="Run on"
               data-composer-shortcut="composer.host"
@@ -124,25 +129,36 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
           }
         >
           {autoEnvironmentLabel ? (
-            <ScaleIcon className="size-3 shrink-0" aria-hidden="true" />
+            <ScaleIcon
+              className={
+                displayMode === "panel" ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0"
+              }
+              aria-hidden="true"
+            />
           ) : (
-            iconOf(activeEnvironment, "size-3 shrink-0")
+            iconOf(
+              activeEnvironment,
+              displayMode === "panel" ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0",
+            )
           )}
-          <span
-            data-composer-label
-            className="min-w-0 max-w-[240px] group-data-[compact]/composer-context:max-w-0"
-          >
-            <span
-              data-composer-label-motion
-              className="block w-full min-w-0 max-w-[240px] truncate transition-opacity duration-180 ease-drawer group-data-[compact]/composer-context:opacity-0 motion-reduce:transition-none"
-            >
-              <SelectValue />
-            </span>
-          </span>
+          <ComposerContextLabel displayMode={displayMode}>
+            <SelectValue />
+          </ComposerContextLabel>
         </TooltipTrigger>
-        <TooltipPopup>{autoEnvironmentLabel ?? activeEnvironment?.label ?? "Run on"}</TooltipPopup>
+        <TooltipPopup>
+          {autoEnvironmentLabel ??
+            (activeEnvironment === null ? "Run on" : labelOf(activeEnvironment))}
+        </TooltipPopup>
       </Tooltip>
-      <SelectPopup alignItemWithTrigger={false} {...composerFloatingLayerProps}>
+      <SelectPopup
+        alignItemWithTrigger={false}
+        {...(displayMode === "toolbar" ? composerFloatingLayerProps : {})}
+        {...(displayMode === "panel"
+          ? {
+              className: "w-(--anchor-width)",
+            }
+          : {})}
+      >
         <SelectGroup>
           <SelectGroupLabel>Run on</SelectGroupLabel>
           {onAutoEnvironment && (

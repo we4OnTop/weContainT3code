@@ -53,7 +53,7 @@ export function ChatsOverview({ onNavigateAway }: { readonly onNavigateAway: () 
             title: thread.title,
             branch: thread.branch,
             updatedAt: thread.updatedAt,
-            latestTurn: thread.latestTurn,
+            latestRun: thread.latestRun,
           })),
       }),
     [orderedEnvironments, primaryEnvironmentId, sandboxesByEnvironmentId, threads],

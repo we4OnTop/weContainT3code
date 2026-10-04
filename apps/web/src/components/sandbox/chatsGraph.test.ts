@@ -27,7 +27,7 @@ describe("buildChatsGraph", () => {
           title: "Fix {b|x} build",
           branch: "main",
           updatedAt: "2026-09-27T10:00:00.000Z",
-          latestTurn: { state: "running" },
+          latestRun: { status: "running" },
         },
         {
           id: "b",
@@ -35,7 +35,7 @@ describe("buildChatsGraph", () => {
           title: "Docs",
           branch: null,
           updatedAt: "2026-09-27T09:00:00.000Z",
-          latestTurn: null,
+          latestRun: null,
         },
       ],
     });

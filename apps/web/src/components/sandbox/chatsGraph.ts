@@ -9,7 +9,7 @@ export interface ChatsGraphThread {
   readonly title: string;
   readonly branch: string | null;
   readonly updatedAt: string;
-  readonly latestTurn: { readonly state: string } | null;
+  readonly latestRun: { readonly status: string } | null;
 }
 
 export interface ChatsGraphEnvironment {
@@ -50,7 +50,7 @@ export function buildChatsGraph(input: {
       : isHost
         ? "This machine"
         : environment.label;
-    const running = chats.filter((thread) => thread.latestTurn?.state === "running").length;
+    const running = chats.filter((thread) => thread.latestRun?.status === "running").length;
     nodes.push({
       // Sorts the column: this machine first, then the rest in list order.
       id: `${environmentNodeId(environment.environmentId)}`,
@@ -69,7 +69,7 @@ export function buildChatsGraph(input: {
   for (const thread of recent) {
     const index = envIndex.get(thread.environmentId);
     if (index === undefined) continue;
-    const state = thread.latestTurn?.state ?? "idle";
+    const state = thread.latestRun?.status ?? "idle";
     // Column order: grouped by environment, newest first inside a group.
     const order = `${String(index).padStart(3, "0")}:${String(
       9_999_999_999_999 - (Date.parse(thread.updatedAt) || 0),
@@ -82,9 +82,9 @@ export function buildChatsGraph(input: {
       details: [
         chartText(thread.title, 100),
         ...(thread.branch ? [`Branch: ${chartText(thread.branch, 60)}`] : []),
-        `Last turn: ${state}`,
+        `Last run: ${state}`,
       ],
-      alert: state === "error",
+      alert: state === "failed",
       muted: state !== "running",
     });
     links.push({
@@ -92,7 +92,7 @@ export function buildChatsGraph(input: {
       target: id,
       label: "",
       details: [],
-      alert: state === "error",
+      alert: state === "failed",
       weight: 1,
     });
   }
