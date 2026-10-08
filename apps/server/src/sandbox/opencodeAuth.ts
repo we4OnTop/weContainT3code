@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off -- Synchronous sha256 hashing (and the tar parser stream) feed pure helpers that never yield.
 import * as NodeCrypto from "node:crypto";
 
 /**
