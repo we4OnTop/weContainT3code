@@ -160,3 +160,19 @@ polishes matches all ten entries to the 5 decimals shown and exceeds none. For n
 
 The n=21 value is above every published paper value (AlphaEvolve 2.3658321334) but equal to
 the current leaderboard top, so it is not a new record either.
+
+### Circles in an ellipse of perimeter 2*pi
+
+`circles-ellipse` in `problems.py` (checked against the table for n=2, 3, 7, 10). Three
+propose rounds at n=24, then the best method with 1000 polishes on n=10..34 (Friedman's
+circles-in-ellipses page, read 2026-11):
+
+| n                        | this search | table | verdict |
+| ------------------------ | ----------- | ----- | ------- |
+| 10..15, 17..30, 32       | inside the table's 3-decimal interval | entries from 2009/2011 | tie |
+| 31                       | 5.110922    | 5.11092+ | tie |
+| 16                       | 3.604800    | 3.611+   | below |
+| 33, 34                   | 5.275227 / 5.358756 | 5.27852+ / 5.36211+ | below |
+
+22 of 25 table values matched, none exceeded. n=35..40 were not finished: the container
+restarted during the run.
