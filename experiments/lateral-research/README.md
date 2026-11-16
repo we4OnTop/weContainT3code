@@ -119,3 +119,19 @@ comparison; digits of agreement with the best known value, higher is better):
 Picking the idea farthest from everything tried is worse than picking at random, and the
 evaluator is level with random. What helped was generating many different methods and
 measuring all of them.
+
+### The proposed circle methods on the rest of the table
+
+The three best proposed circle methods, 600 polishes each for n=24..40, then the two best
+with 3000 polishes for n=33..38 (table: Friedman's circles-in-squares page, 2026-11):
+
+| n                          | this search | table    | verdict |
+| -------------------------- | ----------- | -------- | ------- |
+| 24, 25, 28, 29, 30, 31     | equal to 5 decimals | entries from 2011/2012 | tie |
+| 34, 35, 37, 38             | 3.029799 / 3.074036 / 3.161499 / 3.205946 | 3.02979+ / 3.07403+ / 3.16149+ / 3.20594+ | tie |
+| 27                         | 2.685157    | 2.68597+ | below |
+| 33                         | 2.987285    | 2.98729+ | below by 5e-6 |
+| 36                         | 3.121004    | 3.12175+ | below |
+| 39, 40 (600 polishes only) | 3.243679 / 3.291236 | 3.24811+ / 3.29239+ | below |
+
+Ten more table values matched, none exceeded.
