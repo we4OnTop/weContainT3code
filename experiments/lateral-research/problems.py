@@ -189,6 +189,80 @@ class Circles:
         return a if a[0] >= b[0] else b
 
 
+class CirclesRect(Circles):
+    """n disjoint circles in a rectangle of perimeter 4 maximising the sum of radii.
+
+    Vector: n*(x, y, r) followed by the rectangle width w; the rectangle is [0,w] x [0,2-w].
+    """
+
+    def __init__(self, n):
+        super().__init__(n)
+        self.dim = 3 * n + 1
+
+    def random(self, rng):
+        w = rng.uniform(0.6, 1.4)
+        c = np.column_stack([rng.random(self.n) * w, rng.random(self.n) * (2 - w), np.full(self.n, 0.3 / np.sqrt(self.n))])
+        return np.append(c.ravel(), w)
+
+    def score(self, x):
+        x = np.asarray(x, float)
+        w = float(np.clip(x[-1], 1e-6, 2 - 1e-6))
+        size = np.array([w, 2 - w])
+        c = x[:-1].reshape(-1, 3).copy()
+        c[:, :2] = np.clip(c[:, :2], 0, size)
+        r = np.minimum(np.abs(c[:, 2]), np.minimum(c[:, :2], size - c[:, :2]).min(1))
+        I, J = self.I, self.J
+        d = np.hypot(c[I, 0] - c[J, 0], c[I, 1] - c[J, 1])
+        for _ in range(400):
+            over = r[I] + r[J] - d
+            k = np.argmax(over)
+            if over[k] <= 0:
+                break
+            scale = d[k] / (r[I[k]] + r[J[k]]) * (1 - 1e-16)
+            r[I[k]] *= scale
+            r[J[k]] *= scale
+        if np.any(r[I] + r[J] > d):
+            return 0.0, x
+        c[:, 2] = r
+        return float(r.sum()), np.append(c.ravel(), w)
+
+    def polish(self, x):
+        n, I, J = self.n, self.I, self.J
+        m = len(I)
+        rows = np.arange(m)
+
+        def pair(z):
+            c = z[:-1].reshape(-1, 3)
+            return (c[I, 0] - c[J, 0]) ** 2 + (c[I, 1] - c[J, 1]) ** 2 - (c[I, 2] + c[J, 2]) ** 2
+
+        def pair_jac(z):
+            c = z[:-1].reshape(-1, 3)
+            Jm = np.zeros((m, 3 * n + 1))
+            dx, dy, sr = c[I, 0] - c[J, 0], c[I, 1] - c[J, 1], c[I, 2] + c[J, 2]
+            Jm[rows, 3 * I], Jm[rows, 3 * J] = 2 * dx, -2 * dx
+            Jm[rows, 3 * I + 1], Jm[rows, 3 * J + 1] = 2 * dy, -2 * dy
+            Jm[rows, 3 * I + 2] = Jm[rows, 3 * J + 2] = -2 * sr
+            return Jm
+
+        # walls: x-r, y-r, w-x-r, (2-w)-y-r >= 0
+        W = np.zeros((4 * n, 3 * n + 1))
+        w0 = np.zeros(4 * n)
+        k = np.arange(n)
+        W[k, 3 * k], W[k, 3 * k + 2] = 1, -1
+        W[n + k, 3 * k + 1], W[n + k, 3 * k + 2] = 1, -1
+        W[2 * n + k, 3 * k], W[2 * n + k, 3 * k + 2], W[2 * n + k, -1] = -1, -1, 1
+        W[3 * n + k, 3 * k + 1], W[3 * n + k, 3 * k + 2], W[3 * n + k, -1], w0[3 * n + k] = -1, -1, -1, 2
+        g = np.zeros(3 * n + 1)
+        g[2:-1:3] = -1
+        res = minimize(lambda z: -z[2:-1:3].sum(), np.asarray(x, float), jac=lambda z: g,
+                       constraints=[{"type": "ineq", "fun": pair, "jac": pair_jac},
+                                    {"type": "ineq", "fun": lambda z: w0 + W @ z, "jac": lambda z: W}],
+                       bounds=[(0, 2), (0, 2), (0, 1)] * n + [(0.05, 1.95)], method="SLSQP",
+                       options={"maxiter": 400, "ftol": 1e-15})
+        a, b = self.score(res.x), self.score(x)
+        return a if a[0] >= b[0] else b
+
+
 class Ratio:
     """n points in R^d minimising (max distance / min distance)^2. Score is its negative."""
 
@@ -239,6 +313,8 @@ def make(name, n):
         return Heilbronn(n, name.split("-")[1])
     if name == "circles":
         return Circles(n)
+    if name == "circles-rect":
+        return CirclesRect(n)
     if name in ("ratio2", "ratio3"):
         return Ratio(n, int(name[-1]))
     raise ValueError(f"unknown problem {name}")

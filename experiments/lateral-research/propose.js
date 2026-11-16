@@ -26,7 +26,8 @@ const LAYOUT = {
   ratio3: 'n*3 coordinates of points in space, any scale; score = -(max distance / min distance)^2',
   'heilbronn-triangle': 'n*2 coordinates of points in the triangle (0,0),(1,0),(0,1); score = smallest triangle area / 0.5',
   'heilbronn-convex': 'n*2 coordinates of points; score = smallest triangle area / area of the convex hull',
-  circles: 'n*3 values (x, y, r) of circles in the unit square; score = sum of radii after overlaps are repaired'
+  circles: 'n*3 values (x, y, r) of circles in the unit square; score = sum of radii after overlaps are repaired',
+  'circles-rect': 'n*3 values (x, y, r) of circles, then one last value w; the circles must lie in the rectangle [0,w] x [0,2-w] (perimeter 4, shape free); score = sum of radii after overlaps are repaired'
 };
 
 const BASELINE = {
