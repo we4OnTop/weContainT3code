@@ -136,3 +136,23 @@ with 3000 polishes for n=33..38 (table: Friedman's circles-in-squares page, 2026
 
 Ten more table values matched, none exceeded. For n=41..50 the strongest method with 1500
 polishes stays 0.007 to 0.028 below the table (two runs failed on an invalid start).
+
+### Circles in a rectangle of perimeter 4
+
+`circles-rect` in `problems.py`; three propose rounds at n=28, then the two best methods
+with 2000 polishes on the table's 2011 entries (Friedman's circles-in-rectangles page) and
+on n=21 against the EinsteinArena leaderboard (read 2026-11):
+
+| n  | this search        | best known           | verdict |
+| -- | ------------------ | -------------------- | ------- |
+| 21 | 2.365832375910822  | 2.3658323759098576   | tie: 1e-12 apart, checked feasible in exact rational arithmetic |
+| 22 | 2.425137           | 2.425+               | tie within the table's 3 decimals |
+| 23 | 2.484240           | 2.484+               | tie within 3 decimals |
+| 24 | 2.535697           | 2.535+               | tie within 3 decimals |
+| 25 | 2.592538           | 2.592+               | tie within 3 decimals |
+| 28 | 2.740976           | 2.740+               | tie within 3 decimals |
+| 29 | 2.792640           | 2.792+               | tie within 3 decimals |
+| 30 | 2.844494           | 2.844+               | tie within 3 decimals |
+
+The n=21 value is above every published paper value (AlphaEvolve 2.3658321334) but equal to
+the current leaderboard top, so it is not a new record either.
