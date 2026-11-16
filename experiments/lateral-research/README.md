@@ -154,5 +154,8 @@ on n=21 against the EinsteinArena leaderboard (read 2026-11):
 | 29 | 2.792640           | 2.792+               | tie within 3 decimals |
 | 30 | 2.844494           | 2.844+               | tie within 3 decimals |
 
+For n=31..40 (table entries from October 2026, 5 decimals) the best method with 2500
+polishes matches all ten entries to the 5 decimals shown and exceeds none.
+
 The n=21 value is above every published paper value (AlphaEvolve 2.3658321334) but equal to
 the current leaderboard top, so it is not a new record either.
