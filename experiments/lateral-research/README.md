@@ -134,4 +134,5 @@ with 3000 polishes for n=33..38 (table: Friedman's circles-in-squares page, 2026
 | 36                         | 3.121004    | 3.12175+ | below |
 | 39, 40 (600 polishes only) | 3.243679 / 3.291236 | 3.24811+ / 3.29239+ | below |
 
-Ten more table values matched, none exceeded.
+Ten more table values matched, none exceeded. For n=41..50 the strongest method with 1500
+polishes stays 0.007 to 0.028 below the table (two runs failed on an invalid start).
