@@ -79,7 +79,43 @@ will reach on an instance.
     lateral evaluator --data measurements.jsonl --context "<instance>" --rank "<idea>" --rank "<idea>"
     lateral evaluator --data measurements.jsonl --add "<idea>" --context "<instance>" --found 7.54 --best 7.52605 --minimize
 
-With 49 measurements of 4 ideas it predicts barely better than the mean: held-out rank
-correlation 0.19 by row, 0.12 by instance, 0.08 by idea; mean error 2.7 digits against 3.1
-for always predicting the mean. It is the storage and the check, not yet a useful judge;
-it needs many more distinct ideas measured before its ranking should steer anything.
+With the first 49 measurements of 4 ideas it predicted barely better than the mean (held-out
+rank correlation 0.08 to 0.19). After the propose loop below (114 measurements, 64 ideas)
+the held-out rank correlation is 0.68 to 0.74, but most of that is the instance: Heilbronn
+runs end far from the record whatever the method. Its picks inside a round, where the
+instance is fixed, are the fair test, and there it is no better than chance (see below).
+
+## Propose loop: the model writes methods, lateral measures them
+
+`propose.js` adds `lateral propose`. Each round the model (Claude CLI) writes four search
+methods as code against a fixed interface, `run_method.py` measures each with 300 polishes,
+and every result is appended to `measurements.jsonl` with the code in `proposals/`.
+
+    lateral propose --data measurements.jsonl --problem circles --n 32 --best 2.939572771 --rounds 3
+
+Best proposed method per instance, same 300-polish budget as the random-restart baseline:
+
+| instance                | random restarts | best proposal  | best known       | verdict |
+| ----------------------- | --------------- | -------------- | ---------------- | ------- |
+| circles in square n=32  | 2.924535        | 2.939572771206 | 2.939572771206   | reached |
+| circles in square n=26  | 2.615194        | 2.635983085    | 2.635983         | reached |
+| distance ratio 3D n=27  | 7.536739        | 7.526055       | 7.52605+         | reached |
+| Heilbronn triangle n=11 | 0.028866        | 0.035762       | 0.036530         | below   |
+| Heilbronn convex n=14   | 0.018369        | 0.025976       | 0.027836         | below   |
+
+47 of 60 proposals beat random restarts, and three records that every hand-written method
+above missed were reached. None was beaten: the two `*.best.json` files in `proposals/` are
+the n=32 record itself, flagged only because `--best` was given truncated.
+
+Two selectors were scored on the same proposals (all were measured, so this is a fair
+comparison; digits of agreement with the best known value, higher is better):
+
+| selector                                   | mean digits | reached a record |
+| ------------------------------------------ | ----------- | ---------------- |
+| all 60 proposals (what a random pick gets) | 2.47        | 7 of 60          |
+| evaluator's pick (15 rounds)               | 2.52        | 2 of 15          |
+| farthest from ideas already tried (15)     | 1.83        | 0 of 15          |
+
+Picking the idea farthest from everything tried is worse than picking at random, and the
+evaluator is level with random. What helped was generating many different methods and
+measuring all of them.

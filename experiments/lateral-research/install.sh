@@ -1,31 +1,9 @@
 #!/bin/sh
-# Copies the research module into an installed lateral and adds its `research` command.
+# Copies the research modules into an installed lateral and adds their CLI commands.
 set -e
 here="$(cd "$(dirname "$0")" && pwd)"
 root="${1:-$HOME/.local/share/lateral}"
 mkdir -p "$root/src/research"
-cp --remove-destination "$here/search.js" "$here/evaluator.js" "$here/problems.py" "$root/src/research/"
-grep -q 'case "evaluator"' "$root/src/cli.js" || node -e '
-const fs = require("fs");
-const file = process.argv[1] + "/src/cli.js";
-const hook = `    case "research": {
-      const { runResearchCli } = await import("./research/search.js");
-      const names = ["problem", "n", "strategy", "budget", "seed", "workers", "restart", "out"];
-      await runResearchCli(Object.fromEntries(names.map((k) => [k, flag(rest, k)]).filter(([, v]) => v != null)));
-      return "done";
-    }
-
-    case "evaluator": {
-      const { runEvaluatorCli } = await import("./research/evaluator.js");
-      const names = ["data", "context", "add", "found", "best"];
-      const flags = Object.fromEntries(names.map((k) => [k, flag(rest, k)]).filter(([, v]) => v != null));
-      if (hasFlag(rest, "minimize")) flags.minimize = true;
-      runEvaluatorCli(flags, rest.flatMap((v, i) => (rest[i - 1] === "--rank" ? [v] : [])));
-      return undefined;
-    }
-
-    case '"'"'mcp'"'"':`;
-const src = fs.readFileSync(file, "utf8");
-if (!src.includes("    case '"'"'mcp'"'"':")) throw new Error("cli.js layout changed; add the research case by hand");
-fs.writeFileSync(file, src.replace("    case '"'"'mcp'"'"':", hook));
-' "$root"
+cp --remove-destination "$here"/search.js "$here"/evaluator.js "$here"/propose.js \
+  "$here"/problems.py "$here"/run_method.py "$root/src/research/"
+node "$here/install-cli.mjs" "$root/src/cli.js"
