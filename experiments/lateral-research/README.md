@@ -59,8 +59,9 @@ random starts at equal budgets (best of 400 polishes in 2D, 500 in 3D):
 | 3D n=27  | 7.539632  | 7.546326  | 7.536739  | 7.52605+  |
 | 3D n=28  | 7.689589  | 7.713135  | 7.689589  | 7.68958+  |
 | 3D n=29  | 7.849436  | 7.849436  | 7.849436  | 7.84943+  |
+| 3D n=30  | 8.032330  | 8.034733  | 8.031711  | 8.03171+  |
 
-Structured starts reach the 2D n=24 record that random starts miss, and make no difference
-in 3D. Still ties, no improvement. Plain restarts with 500 polishes also match table values
+Symmetric starts reach the 2D n=24 and 3D n=30 records (the latter has 3-fold symmetry)
+that random starts miss, and make no difference elsewhere. Still ties, no improvement. Plain restarts with 500 polishes also match table values
 that the kick loop above missed with 6000, so kicking from found optima hurt on these
 instances whichever way the direction was chosen.
