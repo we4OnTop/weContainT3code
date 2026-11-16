@@ -263,6 +263,124 @@ class CirclesRect(Circles):
         return a if a[0] >= b[0] else b
 
 
+def ellipse_b(a):
+    """Semi-minor axis of the ellipse with semi-major axis a and perimeter 2*pi."""
+    from scipy.optimize import brentq
+    from scipy.special import ellipe
+    if a <= 1 + 1e-12:
+        return 1.0
+    return brentq(lambda b: 4 * a * ellipe(1 - (b / a) ** 2) - 2 * np.pi, 1e-9, 1.0)
+
+
+def ellipse_distance(c, a, b):
+    """Distance from interior points c (k,2) to the ellipse boundary, and the nearest boundary angle."""
+    t = np.linspace(0, 2 * np.pi, 361)[:-1]
+    d2 = (a * np.cos(t)[None] - c[:, :1]) ** 2 + (b * np.sin(t)[None] - c[:, 1:]) ** 2
+    t = t[d2.argmin(1)]
+    for _ in range(30):  # Newton on d/dt of the squared distance
+        ct, st = np.cos(t), np.sin(t)
+        ex, ey = a * ct - c[:, 0], b * st - c[:, 1]
+        f = -ex * a * st + ey * b * ct
+        df = a * a * st * st - ex * a * ct + b * b * ct * ct - ey * b * st
+        t = t - np.clip(f / np.where(np.abs(df) < 1e-14, 1e-14, df), -0.1, 0.1)
+    return np.hypot(a * np.cos(t) - c[:, 0], b * np.sin(t) - c[:, 1]), t
+
+
+class CirclesEllipse(Circles):
+    """n disjoint circles in an ellipse of perimeter 2*pi maximising the sum of radii.
+
+    Vector: n*(x, y, r) followed by the semi-major axis a (along x); the ellipse is centred
+    at the origin and its semi-minor axis follows from the perimeter.
+    """
+
+    def __init__(self, n):
+        super().__init__(n)
+        self.dim = 3 * n + 1
+
+    def random(self, rng):
+        a = rng.uniform(1.0, 1.25)
+        b = ellipse_b(a)
+        ang, rad = rng.random(self.n) * 2 * np.pi, np.sqrt(rng.random(self.n)) * 0.9
+        c = np.column_stack([a * rad * np.cos(ang), b * rad * np.sin(ang), np.full(self.n, 0.5 / np.sqrt(self.n))])
+        return np.append(c.ravel(), a)
+
+    def score(self, x):
+        x = np.asarray(x, float)
+        a = float(np.clip(x[-1], 1.0, 1.55))
+        b = ellipse_b(a)
+        c = x[:-1].reshape(-1, 3).copy()
+        inside = (c[:, 0] / a) ** 2 + (c[:, 1] / b) ** 2
+        c[:, :2] /= np.maximum(1.0, np.sqrt(inside) / (1 - 1e-9))[:, None]
+        # Safety margin on the wall distance: it comes from an iteration, not a closed form.
+        wall = ellipse_distance(c[:, :2], a, b)[0] - 1e-11
+        r = np.clip(np.minimum(np.abs(c[:, 2]), wall), 0, None)
+        I, J = self.I, self.J
+        d = np.hypot(c[I, 0] - c[J, 0], c[I, 1] - c[J, 1])
+        for _ in range(400):
+            over = r[I] + r[J] - d
+            k = np.argmax(over)
+            if over[k] <= 0:
+                break
+            scale = d[k] / (r[I[k]] + r[J[k]]) * (1 - 1e-16)
+            r[I[k]] *= scale
+            r[J[k]] *= scale
+        if np.any(r[I] + r[J] > d):
+            return 0.0, x
+        c[:, 2] = r
+        return float(r.sum()), np.append(c.ravel(), a)
+
+    def polish(self, x):
+        n, I, J = self.n, self.I, self.J
+        m = len(I)
+        rows = np.arange(m)
+        k = np.arange(n)
+
+        def pair(z):
+            c = z[:-1].reshape(-1, 3)
+            return (c[I, 0] - c[J, 0]) ** 2 + (c[I, 1] - c[J, 1]) ** 2 - (c[I, 2] + c[J, 2]) ** 2
+
+        def pair_jac(z):
+            c = z[:-1].reshape(-1, 3)
+            Jm = np.zeros((m, 3 * n + 1))
+            dx, dy, sr = c[I, 0] - c[J, 0], c[I, 1] - c[J, 1], c[I, 2] + c[J, 2]
+            Jm[rows, 3 * I], Jm[rows, 3 * J] = 2 * dx, -2 * dx
+            Jm[rows, 3 * I + 1], Jm[rows, 3 * J + 1] = 2 * dy, -2 * dy
+            Jm[rows, 3 * I + 2] = Jm[rows, 3 * J + 2] = -2 * sr
+            return Jm
+
+        def wall(z):
+            c = z[:-1].reshape(-1, 3)
+            a = z[-1]
+            b = ellipse_b(a)
+            # Signed: negative when the centre is outside the ellipse.
+            sign = np.where((c[:, 0] / a) ** 2 + (c[:, 1] / b) ** 2 <= 1, 1.0, -1.0)
+            return sign * ellipse_distance(c[:, :2], a, b)[0] - c[:, 2]
+
+        def wall_jac(z):
+            c = z[:-1].reshape(-1, 3)
+            a = z[-1]
+            b = ellipse_b(a)
+            db = (ellipse_b(a + 1e-6) - ellipse_b(max(1.0, a - 1e-6))) / (a + 1e-6 - max(1.0, a - 1e-6))
+            sign = np.where((c[:, 0] / a) ** 2 + (c[:, 1] / b) ** 2 <= 1, 1.0, -1.0)
+            d, t = ellipse_distance(c[:, :2], a, b)
+            d = np.maximum(d, 1e-12)
+            ux, uy = (a * np.cos(t) - c[:, 0]) / d, (b * np.sin(t) - c[:, 1]) / d
+            Jm = np.zeros((n, 3 * n + 1))
+            Jm[k, 3 * k], Jm[k, 3 * k + 1], Jm[k, 3 * k + 2] = -sign * ux, -sign * uy, -1
+            Jm[:, -1] = sign * (ux * np.cos(t) + uy * db * np.sin(t))
+            return Jm
+
+        g = np.zeros(3 * n + 1)
+        g[2:-1:3] = -1
+        res = minimize(lambda z: -z[2:-1:3].sum(), np.asarray(x, float), jac=lambda z: g,
+                       constraints=[{"type": "ineq", "fun": pair, "jac": pair_jac},
+                                    {"type": "ineq", "fun": wall, "jac": wall_jac}],
+                       bounds=[(-1.6, 1.6), (-1.1, 1.1), (0, 1)] * n + [(1.0, 1.5)], method="SLSQP",
+                       options={"maxiter": 400, "ftol": 1e-15})
+        a, b = self.score(res.x), self.score(x)
+        return a if a[0] >= b[0] else b
+
+
 class Ratio:
     """n points in R^d minimising (max distance / min distance)^2. Score is its negative."""
 
@@ -315,6 +433,8 @@ def make(name, n):
         return Circles(n)
     if name == "circles-rect":
         return CirclesRect(n)
+    if name == "circles-ellipse":
+        return CirclesEllipse(n)
     if name in ("ratio2", "ratio3"):
         return Ratio(n, int(name[-1]))
     raise ValueError(f"unknown problem {name}")
