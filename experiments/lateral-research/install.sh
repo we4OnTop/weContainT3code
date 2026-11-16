@@ -4,8 +4,8 @@ set -e
 here="$(cd "$(dirname "$0")" && pwd)"
 root="${1:-$HOME/.local/share/lateral}"
 mkdir -p "$root/src/research"
-cp --remove-destination "$here/search.js" "$here/problems.py" "$root/src/research/"
-grep -q "case 'research'" "$root/src/cli.js" || node -e '
+cp --remove-destination "$here/search.js" "$here/evaluator.js" "$here/problems.py" "$root/src/research/"
+grep -q 'case "evaluator"' "$root/src/cli.js" || node -e '
 const fs = require("fs");
 const file = process.argv[1] + "/src/cli.js";
 const hook = `    case "research": {
@@ -13,6 +13,15 @@ const hook = `    case "research": {
       const names = ["problem", "n", "strategy", "budget", "seed", "workers", "restart", "out"];
       await runResearchCli(Object.fromEntries(names.map((k) => [k, flag(rest, k)]).filter(([, v]) => v != null)));
       return "done";
+    }
+
+    case "evaluator": {
+      const { runEvaluatorCli } = await import("./research/evaluator.js");
+      const names = ["data", "context", "add", "found", "best"];
+      const flags = Object.fromEntries(names.map((k) => [k, flag(rest, k)]).filter(([, v]) => v != null));
+      if (hasFlag(rest, "minimize")) flags.minimize = true;
+      runEvaluatorCli(flags, rest.flatMap((v, i) => (rest[i - 1] === "--rank" ? [v] : [])));
+      return undefined;
     }
 
     case '"'"'mcp'"'"':`;

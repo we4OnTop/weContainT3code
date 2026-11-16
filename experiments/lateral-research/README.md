@@ -60,8 +60,26 @@ random starts at equal budgets (best of 400 polishes in 2D, 500 in 3D):
 | 3D n=28  | 7.689589  | 7.713135  | 7.689589  | 7.68958+  |
 | 3D n=29  | 7.849436  | 7.849436  | 7.849436  | 7.84943+  |
 | 3D n=30  | 8.032330  | 8.034733  | 8.031711  | 8.03171+  |
+| 2D n=30  | 26.879265 | 26.879265 | 26.879265 | 26.879+   |
+| 2D n=31  | 28.283577 | 28.000000 | 28.000000 | 28        |
 
-Symmetric starts reach the 2D n=24 and 3D n=30 records (the latter has 3-fold symmetry)
-that random starts miss, and make no difference elsewhere. Still ties, no improvement. Plain restarts with 500 polishes also match table values
+Structured starts reach the 2D n=24, 2D n=31 and 3D n=30 records that random starts miss,
+and make no difference elsewhere. Still ties, no improvement. Plain restarts with 500 polishes also match table values
 that the kick loop above missed with 6000, so kicking from found optima hurt on these
 instances whichever way the direction was chosen.
+
+## Evaluator trained on measurements
+
+`evaluator.js` adds `lateral evaluator`. `measurements.jsonl` holds every measured
+(idea, instance, result) from the runs above; the model is kernel ridge regression over
+lateral's text embeddings and predicts how many digits of the best known value an idea
+will reach on an instance.
+
+    lateral evaluator --data measurements.jsonl
+    lateral evaluator --data measurements.jsonl --context "<instance>" --rank "<idea>" --rank "<idea>"
+    lateral evaluator --data measurements.jsonl --add "<idea>" --context "<instance>" --found 7.54 --best 7.52605 --minimize
+
+With 49 measurements of 4 ideas it predicts barely better than the mean: held-out rank
+correlation 0.19 by row, 0.12 by instance, 0.08 by idea; mean error 2.7 digits against 3.1
+for always predicting the mean. It is the storage and the check, not yet a useful judge;
+it needs many more distinct ideas measured before its ranking should steer anything.
