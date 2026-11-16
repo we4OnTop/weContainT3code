@@ -44,3 +44,23 @@ from 2009; elsewhere it is below. The 3D n=14 value is the only one under a publ
 number, and it is a tighter polish of the known configuration, not a new one. Budgets:
 20000 polishes (Heilbronn, circles), 1500 to 12000 (distance ratio). `results/` holds the
 coordinates.
+
+## Method chosen by lateral's LLM backend: structured starts
+
+With `LATERAL_BACKEND=claude`, lateral's decision loop ranked six candidate methods and
+chose symmetric starts, with lattice cut-outs second. `seeds.py` measures both against
+random starts at equal budgets (best of 400 polishes in 2D, 500 in 3D):
+
+| instance | random    | lattice   | symmetric | table     |
+| -------- | --------- | --------- | --------- | --------- |
+| 2D n=24  | 20.960213 | 20.928203 | 20.928203 | 20.928203 |
+| 3D n=22  | 6.345524  | 6.345524  | 6.345524  | 6.34552+  |
+| 3D n=25  | 7.045279  | 7.045279  | 7.045279  | 7.04527+  |
+| 3D n=27  | 7.539632  | 7.546326  | 7.536739  | 7.52605+  |
+| 3D n=28  | 7.689589  | 7.713135  | 7.689589  | 7.68958+  |
+| 3D n=29  | 7.849436  | 7.849436  | 7.849436  | 7.84943+  |
+
+Structured starts reach the 2D n=24 record that random starts miss, and make no difference
+in 3D. Still ties, no improvement. Plain restarts with 500 polishes also match table values
+that the kick loop above missed with 6000, so kicking from found optima hurt on these
+instances whichever way the direction was chosen.
