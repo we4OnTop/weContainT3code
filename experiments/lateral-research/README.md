@@ -176,3 +176,34 @@ circles-in-ellipses page, read 2026-11):
 
 22 of 25 table values matched, none exceeded. n=35..40 were not finished: the container
 restarted during the run.
+
+## lateral improving lateral
+
+`selfimprove.js` adds `lateral selfimprove`. It follows the empirical line of recursive
+self-improvement work (Self-Taught Optimizer, arXiv 2310.02304; Darwin Goedel Machine,
+arXiv 2505.22954): the system rewrites part of itself, every rewrite is scored on fixed
+tasks, an archive of all scored variants feeds the next rewrite, and the winner is checked
+on tasks the search never saw. As in those systems, only the scaffold changes, not the model.
+
+What is rewritten: the policy paragraph in the proposer's prompt (`SEED_POLICY` in
+`propose.js`). Utility of a policy: one propose round of four methods at 150 polishes on
+each of three tasks; mean digits of the best known value reached by the best method.
+
+    lateral selfimprove --data self-measurements.jsonl --generations 3 --count 3
+
+| policy                         | train utility | held-out utility |
+| ------------------------------ | ------------- | ---------------- |
+| seed, run 1 / run 2            | 6.04 / 4.85   | 4.82             |
+| 9 rewritten policies           | 2.59 to 6.86, mean 4.50 | not run |
+| winner (generation 3)          | 6.86, then 4.84 when re-run | 7.08 |
+
+No improvement is demonstrated. Each task ends either at the record (9 digits) or near 2.7,
+so one evaluation swings by more than a digit: the seed alone scored 6.04 and 4.85, and the
+winner fell from 6.86 to 4.84 on a second run. Its held-out 7.08 against the seed's 4.82 is
+one draw each, inside that spread. The rewritten policies averaged below the seed.
+
+The loop works mechanically; the measurement is too coarse for it. Before another run the
+utility needs to be several times less noisy: more tasks, repeated rounds, and a graded
+score (for example the share of proposals that beat random restarts) instead of the best of
+four. At about 45 model calls for this run, that is mainly a cost question.
+`selfimprove/winning-policy.txt` holds the winner; it is not wired in as the default.
