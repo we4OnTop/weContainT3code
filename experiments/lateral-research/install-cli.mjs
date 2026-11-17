@@ -17,6 +17,9 @@ const hooks = {
       return undefined;`,
   propose: `      const { runProposeCli } = await import("./research/propose.js");
       await runProposeCli(${flags(['data', 'problem', 'n', 'best', 'rounds', 'count', 'budget', 'work'])});
+      return undefined;`,
+  selfimprove: `      const { runSelfImproveCli } = await import("./research/selfimprove.js");
+      await runSelfImproveCli(${flags(['data', 'generations', 'count', 'budget', 'work'])});
       return undefined;`
 };
 

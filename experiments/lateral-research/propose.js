@@ -8,7 +8,7 @@
 // Because every proposal is measured, the measurements say afterwards whether either
 // selector beats picking at random.
 
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -21,7 +21,7 @@ import { loadMeasurements, recordMeasurement, trainEvaluator, outcome } from './
 const here = dirname(fileURLToPath(import.meta.url));
 const run = promisify(execFile);
 
-const LAYOUT = {
+export const LAYOUT = {
   ratio2: 'n*2 coordinates of points in the plane, any scale; score = -(max distance / min distance)^2',
   ratio3: 'n*3 coordinates of points in space, any scale; score = -(max distance / min distance)^2',
   'heilbronn-triangle': 'n*2 coordinates of points in the triangle (0,0),(1,0),(0,1); score = smallest triangle area / 0.5',
@@ -36,7 +36,10 @@ const BASELINE = {
   code: 'def search(problem, rng, polish):\n    while True:\n        polish(problem.random(rng))\n'
 };
 
-function ask({ problem, n, budget, history, count }) {
+/** The part of the proposer's prompt that says what kind of methods to write; `lateral selfimprove` rewrites it. */
+export const SEED_POLICY = 'Propose methods that differ from each other and from the ones above in their core idea, not\nin parameters.';
+
+export async function ask({ problem, n, budget, history, count, policy = SEED_POLICY }) {
   const tried = history.length
     ? history.map((h) => `- reached ${outcome(h).toFixed(1)} digits: ${h.idea}`).join('\n')
     : '- nothing yet';
@@ -57,24 +60,25 @@ def search(problem, rng, polish):
 Methods already measured on this problem (9.0 digits = best known value reached):
 ${tried}
 
-Propose methods that differ from each other and from the ones above in their core idea, not
-in parameters. Reply with exactly ${count} blocks and nothing else, each of the form
+${policy}
+
+Reply with exactly ${count} blocks and nothing else, each of the form
 
 IDEA: <one sentence>
 \`\`\`python
 <source>
 \`\`\``;
-  const out = execFileSync(claudeBin(), [
+  const { stdout: out } = await run(claudeBin(), [
     '-p', user, '--model', process.env.LATERAL_CLAUDE_MODEL ?? 'claude-sonnet-5-5', '--output-format', 'json',
     '--system-prompt', 'You design numerical search heuristics. Follow the reply format exactly.',
     '--permission-mode', 'plan', '--strict-mcp-config',
     '--disallowed-tools', 'Write,Edit,NotebookEdit,Bash,KillShell,WebFetch'
-  ], { timeout: 600000, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  ], { timeout: 600000, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' });
   const blocks = parseClaudeEnvelope(out).text.matchAll(/IDEA:\s*(.+?)\s*\n```(?:python)?\n([\s\S]*?)```/g);
   return [...blocks].map(([, idea, code]) => ({ idea, code })).filter((p) => p.code.includes('def search'));
 }
 
-async function measure({ problem, n, budget, code, file }) {
+export async function measure({ problem, n, budget, code, file }) {
   writeFileSync(file, code);
   const { stdout } = await run('python3', [join(here, 'run_method.py'), problem, String(n), String(budget), file], {
     env: { ...process.env, OMP_NUM_THREADS: '1', OPENBLAS_NUM_THREADS: '1' }, maxBuffer: 16 * 1024 * 1024
@@ -119,7 +123,7 @@ export async function runProposeCli(flags) {
     const history = same();
     let proposals;
     try {
-      proposals = ask({ problem, n, budget, history, count });
+      proposals = await ask({ problem, n, budget, history, count });
     } catch (err) {
       console.log(`round ${round}: no proposals (${String(err.message).split('\n')[0].slice(0, 120)})`);
       continue;

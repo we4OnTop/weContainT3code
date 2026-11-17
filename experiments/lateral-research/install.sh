@@ -4,6 +4,6 @@ set -e
 here="$(cd "$(dirname "$0")" && pwd)"
 root="${1:-$HOME/.local/share/lateral}"
 mkdir -p "$root/src/research"
-cp --remove-destination "$here"/search.js "$here"/evaluator.js "$here"/propose.js \
+cp --remove-destination "$here"/search.js "$here"/evaluator.js "$here"/propose.js "$here"/selfimprove.js \
   "$here"/problems.py "$here"/run_method.py "$root/src/research/"
 node "$here/install-cli.mjs" "$root/src/cli.js"
